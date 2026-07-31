@@ -14,15 +14,18 @@ import { startBot } from './bot.js';
 import { registerJob, setJobLogger, startJobs, stopJobs } from './jobs/index.js';
 import { registerMediaJobs } from './jobs/media.js';
 import { registerBackupJobs, scheduleBackupJobs } from './jobs/backup.js';
+import { registerAnalyticsJobs, scheduleAnalyticsJobs } from './jobs/analytics.js';
 import { authRoutes } from './routes/auth.js';
 import { uploadRoutes } from './routes/upload.js';
 import { publicRoutes } from './routes/public.js';
+import { collectRoutes } from './routes/collect.js';
 import { adminUserRoutes } from './routes/admin/users.js';
 import { adminInviteRoutes } from './routes/admin/invites.js';
 import { adminMediaRoutes } from './routes/admin/media.js';
 import { adminGuideRoutes } from './routes/admin/guides.js';
 import { adminTaxonomyRoutes } from './routes/admin/taxonomy.js';
 import { adminBackupRoutes } from './routes/admin/backups.js';
+import { adminStatsRoutes } from './routes/admin/stats.js';
 import { adminSystemRoutes } from './routes/admin/system.js';
 
 const app = Fastify({
@@ -120,12 +123,14 @@ app.get('/health', async () => {
 await app.register(authRoutes, { prefix: '/api' });
 await app.register(uploadRoutes, { prefix: '/api' });
 await app.register(publicRoutes, { prefix: '/api' });
+await app.register(collectRoutes, { prefix: '/api' });
 await app.register(adminUserRoutes, { prefix: '/api' });
 await app.register(adminInviteRoutes, { prefix: '/api' });
 await app.register(adminMediaRoutes, { prefix: '/api' });
 await app.register(adminGuideRoutes, { prefix: '/api' });
 await app.register(adminTaxonomyRoutes, { prefix: '/api' });
 await app.register(adminBackupRoutes, { prefix: '/api' });
+await app.register(adminStatsRoutes, { prefix: '/api' });
 await app.register(adminSystemRoutes, { prefix: '/api' });
 
 // ===== Старт =====
@@ -140,9 +145,11 @@ try {
   // Сначала обработчики — их можно объявлять до старта очереди
   await registerMediaJobs();
   await registerBackupJobs((m) => app.log.info(m));
+  await registerAnalyticsJobs((m) => app.log.info(m));
   await startJobs();
   // Расписания — только после: без живой очереди cron ставить некуда
   await scheduleBackupJobs();
+  await scheduleAnalyticsJobs();
   void registerJob; // обработчики остальных задач регистрируются в своих модулях
 
   await app.listen({ port: env.port, host: env.host });

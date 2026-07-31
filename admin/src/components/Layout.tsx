@@ -27,7 +27,7 @@ const NAV: NavItem[] = [
   { to: '/guides', label: 'Гайды', icon: BookOpen, role: 'EDITOR', ready: true },
   { to: '/media', label: 'Медиа', icon: ImageIcon, role: 'EDITOR', ready: true },
   { to: '/structure', label: 'Структура', icon: FolderTree, role: 'EDITOR', ready: true },
-  { to: '/stats', label: 'Статистика', icon: BarChart3, role: 'ADMIN', ready: false },
+  { to: '/stats', label: 'Статистика', icon: BarChart3, role: 'ADMIN', ready: true },
   { to: '/users', label: 'Пользователи', icon: UsersIcon, role: 'ADMIN', ready: true },
   { to: '/invites', label: 'Инвайты', icon: Ticket, role: 'ADMIN', ready: true },
   { to: '/backups', label: 'Бэкапы', icon: DatabaseBackup, role: 'ADMIN', ready: true },

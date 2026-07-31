@@ -113,7 +113,8 @@ export function flush(useBeacon = false): void {
   });
 
   // Content-Type: text/plain — так браузер не делает preflight OPTIONS (§8.1)
-  const url = `${API_PUBLIC}/api/collect`;
+  // visitorId в query — по нему считается лимит запросов на сервере
+  const url = `${API_PUBLIC}/api/collect?v=${encodeURIComponent(visitorId())}`;
   try {
     if (useBeacon && navigator.sendBeacon) {
       navigator.sendBeacon(url, new Blob([body], { type: 'text/plain;charset=UTF-8' }));
