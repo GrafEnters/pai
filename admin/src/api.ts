@@ -33,8 +33,15 @@ api.interceptors.response.use(
     const cfg = err?.config;
     const url: string = cfg?.url ?? '';
 
+    // Эндпоинты, которые сами выдают сессию: их повторять после refresh бессмысленно.
+    // /auth/me сюда НЕ входит — это первый запрос приложения, и именно на нём
+    // чаще всего обнаруживается, что 15-минутный access истёк, а refresh ещё жив.
+    const isSessionEndpoint = ['/auth/login', '/auth/refresh', '/auth/logout', '/auth/redeem-invite'].some((p) =>
+      url.includes(p),
+    );
+
     // 401 → один раз пробуем обновить access-токен и повторить запрос
-    if (status === 401 && cfg && !cfg.__retried && !url.includes('/auth/')) {
+    if (status === 401 && cfg && !cfg.__retried && !isSessionEndpoint) {
       cfg.__retried = true;
       if (await refreshOnce()) return api(cfg);
     }

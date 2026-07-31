@@ -18,6 +18,8 @@ import { uploadRoutes } from './routes/upload.js';
 import { adminUserRoutes } from './routes/admin/users.js';
 import { adminInviteRoutes } from './routes/admin/invites.js';
 import { adminMediaRoutes } from './routes/admin/media.js';
+import { adminGuideRoutes } from './routes/admin/guides.js';
+import { adminTaxonomyRoutes } from './routes/admin/taxonomy.js';
 import { adminSystemRoutes } from './routes/admin/system.js';
 
 const app = Fastify({
@@ -117,6 +119,8 @@ await app.register(uploadRoutes, { prefix: '/api' });
 await app.register(adminUserRoutes, { prefix: '/api' });
 await app.register(adminInviteRoutes, { prefix: '/api' });
 await app.register(adminMediaRoutes, { prefix: '/api' });
+await app.register(adminGuideRoutes, { prefix: '/api' });
+await app.register(adminTaxonomyRoutes, { prefix: '/api' });
 await app.register(adminSystemRoutes, { prefix: '/api' });
 
 // ===== Старт =====

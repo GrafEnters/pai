@@ -50,3 +50,85 @@ body {
     @apply inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium;
   }
 }
+
+/* ===== Оформление содержимого редактора ===== */
+.pai-editor {
+  @apply text-[15px] leading-relaxed text-ink-200;
+}
+.pai-editor h2 {
+  @apply mb-2 mt-6 text-xl font-semibold text-white;
+}
+.pai-editor h3 {
+  @apply mb-2 mt-5 text-lg font-semibold text-white;
+}
+.pai-editor h4 {
+  @apply mb-1 mt-4 text-base font-semibold text-ink-100;
+}
+.pai-editor p {
+  @apply my-2;
+}
+.pai-editor ul {
+  @apply my-2 list-disc pl-6;
+}
+.pai-editor ol {
+  @apply my-2 list-decimal pl-6;
+}
+.pai-editor li > p {
+  @apply my-0;
+}
+.pai-editor blockquote {
+  @apply my-3 border-l-2 border-ink-700 pl-4 text-ink-400;
+}
+.pai-editor pre {
+  @apply my-3 overflow-x-auto rounded-lg bg-ink-950 p-3 text-sm;
+}
+.pai-editor code {
+  @apply rounded bg-ink-800 px-1 py-0.5 text-[0.9em] text-brand-300;
+}
+.pai-editor pre code {
+  @apply bg-transparent p-0 text-ink-200;
+}
+.pai-editor mark {
+  @apply rounded bg-amber-400/30 px-0.5 text-ink-100;
+}
+.pai-editor a {
+  @apply text-brand-300 underline underline-offset-2;
+}
+.pai-editor hr {
+  @apply my-6 border-ink-800;
+}
+.pai-editor table {
+  @apply my-3 w-full border-collapse;
+}
+.pai-editor th,
+.pai-editor td {
+  @apply border border-ink-700 px-2 py-1 text-sm;
+}
+.pai-editor th {
+  @apply bg-ink-800 font-semibold;
+}
+/* Placeholder пустого документа */
+.pai-editor p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  @apply pointer-events-none float-left h-0 text-ink-600;
+}
+/* Подсветка кода (lowlight/highlight.js) */
+.pai-editor .hljs-keyword,
+.pai-editor .hljs-selector-tag {
+  @apply text-brand-300;
+}
+.pai-editor .hljs-string,
+.pai-editor .hljs-attr {
+  @apply text-green-300;
+}
+.pai-editor .hljs-number,
+.pai-editor .hljs-literal {
+  @apply text-amber-300;
+}
+.pai-editor .hljs-comment {
+  @apply text-ink-600;
+}
+.pai-editor .hljs-title,
+.pai-editor .hljs-function {
+  @apply text-sky-300;
+}
