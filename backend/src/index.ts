@@ -15,6 +15,7 @@ import { registerJob, setJobLogger, startJobs, stopJobs } from './jobs/index.js'
 import { registerMediaJobs } from './jobs/media.js';
 import { authRoutes } from './routes/auth.js';
 import { uploadRoutes } from './routes/upload.js';
+import { publicRoutes } from './routes/public.js';
 import { adminUserRoutes } from './routes/admin/users.js';
 import { adminInviteRoutes } from './routes/admin/invites.js';
 import { adminMediaRoutes } from './routes/admin/media.js';
@@ -116,6 +117,7 @@ app.get('/health', async () => {
 // ===== Роуты =====
 await app.register(authRoutes, { prefix: '/api' });
 await app.register(uploadRoutes, { prefix: '/api' });
+await app.register(publicRoutes, { prefix: '/api' });
 await app.register(adminUserRoutes, { prefix: '/api' });
 await app.register(adminInviteRoutes, { prefix: '/api' });
 await app.register(adminMediaRoutes, { prefix: '/api' });

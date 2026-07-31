@@ -13,8 +13,9 @@ if not exist ".env" (
     echo [i] Значений по умолчанию достаточно для локального запуска.
 )
 
-REM Backend читает .env из своей папки
+REM Каждый сервис читает .env из своей папки
 copy /Y .env backend\.env >nul
+copy /Y .env web\.env >nul
 
 REM ----- 2) Проверка окружения -----
 where docker >nul 2>&1
