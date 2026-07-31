@@ -4,10 +4,13 @@ import type { Me } from '@/lib/api';
 import { LEVEL_LABEL, readingTimeLabel } from '@/lib/types';
 import { SearchBox } from './SearchBox';
 import { LogoutButton } from './LogoutButton';
+import { SessionRefresher } from './SessionRefresher';
 
 export function Header({ me, categories }: { me: Me | null; categories: CategoryNode[] }) {
   return (
     <header className="sticky top-0 z-40 border-b border-ink-800 bg-ink-950/90 backdrop-blur">
+      {/* access протух, но refresh жив — обновляем пару и перерисовываем */}
+      {!me && <SessionRefresher />}
       <div className="mx-auto flex max-w-6xl items-center gap-4 px-4 py-3">
         <Link href="/" className="shrink-0 font-semibold text-white">
           PAI Guides

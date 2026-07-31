@@ -10,6 +10,7 @@ import { prisma } from './db.js';
 import { env } from './env.js';
 import { EMPTY_DOC, slugify, type TipTapDoc } from './content/schema.js';
 import { deriveContent, syncGuideMedia } from './services/guides.js';
+import { revalidateWeb } from './services/cdn.js';
 
 const DEMO_TAG = 'demo';
 
@@ -149,6 +150,7 @@ async function wipe() {
   const ids = links.map((l) => l.guideId);
   if (ids.length) {
     await prisma.guide.deleteMany({ where: { id: { in: ids } } });
+    await revalidateWeb(['/']);
     console.log(`[seed:demo] удалено гайдов: ${ids.length}`);
   }
   await prisma.tag.delete({ where: { id: tag.id } });
@@ -213,6 +215,9 @@ async function create() {
     await syncGuideMedia(guide.id, derived.mediaIds);
     created++;
   }
+
+  // Демо-гайды пишутся прямо в базу, минуя API, поэтому ISR-кэш о них не знает
+  await revalidateWeb(['/']);
 
   console.log(`[seed:demo] создано гайдов: ${created}`);
   console.log(`[seed:demo] удалить: npm run seed:demo wipe`);
