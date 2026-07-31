@@ -1,0 +1,115 @@
+# Продовый стек целиком. Поднимается на VPS: docker compose up -d --build
+# Локально он не нужен — там достаточно docker-compose.local.yml (см. start.cmd).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: pai_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pai_password}
+      POSTGRES_DB: ${POSTGRES_DB:-pai}
+    # Порт наружу НЕ публикуем — доступ только из docker-сети.
+    volumes:
+      - pai_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pai} -d ${POSTGRES_DB:-pai}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build:
+      context: ./backend
+    container_name: pai_backend
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    environment:
+      # Внутри docker-сети хост базы — это имя сервиса
+      DATABASE_URL: postgresql://${POSTGRES_USER:-pai}:${POSTGRES_PASSWORD:-pai_password}@postgres:5432/${POSTGRES_DB:-pai}
+      BACKEND_PORT: ${BACKEND_PORT:-3001}
+      HOST: 0.0.0.0
+      NODE_ENV: production
+      # Абсолютные пути внутри контейнера — примонтированы томами ниже
+      STORAGE_LOCAL_DIR: /data/storage
+      BACKUP_LOCAL_DIR: /data/backups
+      WEB_INTERNAL_URL: http://web:3000
+      # Имя контейнера с Postgres — нужно для pg_dump через docker exec,
+      # если бинарник pg_dump недоступен внутри backend-контейнера
+      PGDUMP_DOCKER_CONTAINER: pai_postgres
+    volumes:
+      - pai_storage:/data/storage
+      - pai_backups:/data/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:${BACKEND_PORT:-3001}/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  web:
+    build:
+      context: ./web
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.pai.1sx.biz}
+    container_name: pai_web
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+      # Server Components ходят в backend по внутренней docker-сети
+      API_INTERNAL_URL: http://backend:${BACKEND_PORT:-3001}
+    depends_on:
+      - backend
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  admin:
+    build:
+      context: ./admin
+      args:
+        VITE_API_URL: ${VITE_API_URL:-https://api.pai.1sx.biz}
+    container_name: pai_admin
+    restart: unless-stopped
+    depends_on:
+      - backend
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: pai_caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - web
+      - admin
+
+volumes:
+  pai_pgdata:
+  pai_storage:
+  pai_backups:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,31 @@
+# Локальная разработка: в Docker живёт ТОЛЬКО Postgres.
+# backend / web / admin запускаются на хосте через npm run dev — так быстрее
+# перезапуск и работает hot-reload.
+#
+#   docker compose -f docker-compose.local.yml up -d --wait
+#   docker compose -f docker-compose.local.yml down
+#
+# Это делает за вас start.cmd / stop.cmd.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: pai_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pai_password}
+      POSTGRES_DB: ${POSTGRES_DB:-pai}
+    ports:
+      # Слушаем только на loopback — наружу база не смотрит
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pai_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pai} -d ${POSTGRES_DB:-pai}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  pai_pgdata:

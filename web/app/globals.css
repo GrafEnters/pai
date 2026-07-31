@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  @apply bg-ink-950 text-ink-200 antialiased;
+}
+
+/* Плавная прокрутка к якорям оглавления, но с уважением к настройкам ОС */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+/* Отступ под sticky-шапку при переходе по якорю */
+:target {
+  scroll-margin-top: 5rem;
+}

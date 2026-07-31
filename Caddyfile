@@ -1,0 +1,52 @@
+# Caddy 2. Автоматически получает Let's Encrypt сертификаты.
+# Требует, чтобы A-записи всех поддоменов указывали на IP сервера,
+# и чтобы порты 80/443 на хосте были свободны (их биндит контейнер caddy).
+
+{
+    # email для Let's Encrypt — чтобы приходили предупреждения о просрочке
+    email admin@1sx.biz
+}
+
+# --- Публичный сайт гайдов ---------------------------------------------------
+pai.1sx.biz {
+    encode zstd gzip
+    header {
+        # Сайт закрытый: не индексировать никогда
+        X-Robots-Tag "noindex, nofollow, noarchive"
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "same-origin"
+    }
+    reverse_proxy web:3000
+}
+
+# --- API ---------------------------------------------------------------------
+api.pai.1sx.biz {
+    encode zstd gzip
+    reverse_proxy backend:3001
+}
+
+# --- Админка -----------------------------------------------------------------
+# Дополнительно закрывается Cloudflare Access (см. PLAN.md §6.4)
+admin.pai.1sx.biz {
+    encode zstd gzip
+    header {
+        X-Robots-Tag "noindex, nofollow"
+        X-Frame-Options "DENY"
+    }
+    reverse_proxy admin:80
+}
+
+# --- Медиа -------------------------------------------------------------------
+# Нужен ТОЛЬКО если STORAGE_PROVIDER=local (файлы отдаёт backend).
+# При STORAGE_PROVIDER=r2 этот блок не нужен: media.pai.1sx.biz
+# привязывается напрямую к бакету R2 в дашборде Cloudflare.
+media.pai.1sx.biz {
+    encode zstd gzip
+    header {
+        # Имена файлов содержат content-hash ⇒ кэшируем навсегда
+        Cache-Control "public, max-age=31536000, immutable"
+        X-Content-Type-Options "nosniff"
+    }
+    reverse_proxy backend:3001
+}

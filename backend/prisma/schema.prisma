@@ -1,0 +1,481 @@
+// Схема из PLAN.md §4. Стиль — как polina-crm: enum'ы, явные @@index,
+// JSON для гибких структур, снимки версий.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============ Пользователи и доступ ============
+
+enum Role {
+  NONE // зарегистрирован, ждёт подтверждения админом
+  VIEWER // читает
+  EDITOR // создаёт и правит гайды
+  ADMIN // всё + пользователи + настройки + статистика
+}
+
+/// Роль внутри команды — нужна для «обязательных гайдов» и срезов статистики
+enum TeamRole {
+  BUYER
+  FARMER
+  TECH
+  MEDIABUYER
+  MANAGER
+  OTHER
+}
+
+model User {
+  id               Int       @id @default(autoincrement())
+  telegramId       BigInt?   @unique
+  telegramUsername String?   @unique
+  /// Логин для входа по паролю (независим от Telegram)
+  login            String?   @unique
+  email            String?   @unique
+  name             String
+  passwordHash     String?
+  role             Role      @default(NONE)
+  teamRole         TeamRole  @default(OTHER)
+  isActive         Boolean   @default(true)
+  lastSeenAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  guidesAuthored Guide[]             @relation("author")
+  guideVersions  GuideVersion[]
+  progress       UserGuideProgress[]
+  feedback       GuideFeedback[]
+  refreshTokens  RefreshToken[]
+  loginLinks     LoginLink[]
+  mediaUploaded  Media[]             @relation("uploader")
+
+  @@index([role])
+}
+
+model InviteCode {
+  id          Int       @id @default(autoincrement())
+  code        String    @unique
+  role        Role      @default(VIEWER)
+  teamRole    TeamRole  @default(OTHER)
+  note        String?
+  createdById Int
+  usedById    Int?
+  usedAt      DateTime?
+  expiresAt   DateTime
+  createdAt   DateTime  @default(now())
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    Int
+  tokenHash String    @unique // сам токен не храним
+  userAgent String?
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  revokedAt DateTime?
+
+  @@index([userId])
+}
+
+/// Одноразовая ссылка входа из Telegram-бота (magic link, TTL 5 мин)
+model LoginLink {
+  id        String    @id @default(uuid())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    Int
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+// ============ Контент ============
+
+enum GuideStatus {
+  DRAFT
+  IN_REVIEW
+  PUBLISHED
+  ARCHIVED
+}
+
+enum GuideLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+model Category {
+  id          Int        @id @default(autoincrement())
+  slug        String     @unique
+  title       String
+  description String?
+  icon        String? // имя иконки lucide
+  color       String?
+  parent      Category?  @relation("tree", fields: [parentId], references: [id])
+  parentId    Int?
+  children    Category[] @relation("tree")
+  sortOrder   Int        @default(0)
+  guides      Guide[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model Tag {
+  id     Int        @id @default(autoincrement())
+  slug   String     @unique
+  title  String
+  guides GuideTag[]
+}
+
+model Guide {
+  id         Int         @id @default(autoincrement())
+  slug       String      @unique
+  title      String
+  summary    String? // краткое описание для карточки и превью
+  cover      Media?      @relation("cover", fields: [coverId], references: [id])
+  coverId    Int?
+  category   Category    @relation(fields: [categoryId], references: [id])
+  categoryId Int
+  status     GuideStatus @default(DRAFT)
+  level      GuideLevel  @default(BEGINNER)
+
+  /// Опубликованный документ (TipTap JSON) — то, что видит команда
+  content      Json
+  /// Черновик редактора; при публикации переезжает в content
+  contentDraft Json?
+  /// Кэш отрендеренного HTML — для поиска, экспорта в Markdown и превью
+  html         String?
+  /// Плоский текст для полнотекстового поиска
+  plainText    String?
+
+  readingTimeSec Int @default(0)
+  version        Int @default(1)
+
+  author      User @relation("author", fields: [authorId], references: [id])
+  authorId    Int
+  updatedById Int?
+
+  isPinned         Boolean    @default(false)
+  sortOrder        Int        @default(0)
+  /// Роли, для которых гайд обязателен к прочтению (для отчёта «покрытие»)
+  requiredForRoles TeamRole[] @default([])
+  /// Дата, после которой гайд считается «протухшим» и подсвечивается админу
+  reviewAt         DateTime?
+
+  /// Мягкая блокировка от параллельной правки (кто и когда трогал)
+  lockedById Int?
+  lockedAt   DateTime?
+
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  versions  GuideVersion[]
+  tags      GuideTag[]
+  media     GuideMedia[]
+  related   GuideRelation[]     @relation("from")
+  relatedBy GuideRelation[]     @relation("to")
+  progress  UserGuideProgress[]
+  feedback  GuideFeedback[]
+  events    Event[]
+
+  @@index([status, categoryId])
+  @@index([publishedAt])
+  @@index([reviewAt])
+}
+
+/// Снимок каждой правки — как TicketVersion в polina-crm
+model GuideVersion {
+  id          Int      @id @default(autoincrement())
+  guide       Guide    @relation(fields: [guideId], references: [id], onDelete: Cascade)
+  guideId     Int
+  version     Int
+  title       String
+  content     Json
+  changedBy   User     @relation(fields: [changedById], references: [id])
+  changedById Int
+  changeNote  String?
+  createdAt   DateTime @default(now())
+
+  @@unique([guideId, version])
+  @@index([guideId])
+}
+
+model GuideTag {
+  guide   Guide @relation(fields: [guideId], references: [id], onDelete: Cascade)
+  guideId Int
+  tag     Tag   @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  tagId   Int
+
+  @@id([guideId, tagId])
+}
+
+model GuideRelation {
+  from   Guide @relation("from", fields: [fromId], references: [id], onDelete: Cascade)
+  fromId Int
+  to     Guide @relation("to", fields: [toId], references: [id], onDelete: Cascade)
+  toId   Int
+
+  @@id([fromId, toId])
+}
+
+/// Связь «какое медиа используется в каком гайде» — нужна для бэкапа и для
+/// ответа на вопрос «можно ли удалить этот файл»
+model GuideMedia {
+  guide   Guide @relation(fields: [guideId], references: [id], onDelete: Cascade)
+  guideId Int
+  media   Media @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  mediaId Int
+
+  @@id([guideId, mediaId])
+}
+
+// ============ Медиа ============
+
+enum MediaType {
+  IMAGE
+  VIDEO
+  FILE
+}
+
+enum MediaStatus {
+  PENDING
+  UPLOADING
+  PROCESSING
+  READY
+  FAILED
+}
+
+model Media {
+  id           Int         @id @default(autoincrement())
+  type         MediaType
+  status       MediaStatus @default(PENDING)
+  /// Ключ оригинала в бакете: original/<sha256>.<ext>
+  key          String      @unique
+  originalName String
+  mime         String
+  sizeBytes    BigInt
+  sha256       String // дедупликация повторных загрузок
+  width        Int?
+  height       Int?
+  durationSec  Float?
+  blurhash     String? // placeholder, чтобы не было CLS
+  /// Производные: картинки [{w,fmt,key,size}], видео [{height,key,bitrate}] + master.m3u8
+  variants     Json        @default("[]")
+  posterKey    String? // постер видео
+  alt          String?
+  title        String?
+  uploadedBy   User        @relation("uploader", fields: [uploadedById], references: [id])
+  uploadedById Int
+  error        String?
+  createdAt    DateTime    @default(now())
+  processedAt  DateTime?
+
+  guides  GuideMedia[]
+  coverOf Guide[]      @relation("cover")
+  events  Event[]
+
+  @@index([sha256])
+  @@index([type, status])
+}
+
+// ============ Аналитика ============
+
+enum EventType {
+  PAGE_VIEW
+  GUIDE_OPEN
+  GUIDE_SCROLL // props: { depth: 25|50|75|100 }
+  GUIDE_HEARTBEAT // props: { sec: 15 } — активное время
+  GUIDE_READ // порог дочитывания достигнут
+  VIDEO_PLAY
+  VIDEO_PROGRESS // props: { pct: 25|50|75|95 }
+  VIDEO_COMPLETE
+  VIDEO_SEEK
+  SEARCH
+  SEARCH_EMPTY
+  LINK_CLICK
+  FILE_DOWNLOAD
+  FEEDBACK
+  CHECKLIST_TOGGLE
+}
+
+/// Сырые события
+model Event {
+  id        BigInt    @id @default(autoincrement())
+  ts        DateTime  @default(now())
+  type      EventType
+  visitorId String // анонимный id из localStorage
+  sessionId String
+  userId    Int?
+  guide     Guide?    @relation(fields: [guideId], references: [id], onDelete: SetNull)
+  guideId   Int?
+  media     Media?    @relation(fields: [mediaId], references: [id], onDelete: SetNull)
+  mediaId   Int?
+  path      String
+  referrer  String?
+  country   String? // из заголовка CF-IPCountry
+  device    String? // mobile | tablet | desktop
+  props     Json      @default("{}")
+  /// Хеш (visitorId, sessionId, type, ts, guideId) — идемпотентность повторной
+  /// доставки beacon'а, см. §8.2
+  dedupKey  String?   @unique
+
+  @@index([ts])
+  @@index([guideId, ts])
+  @@index([userId, ts])
+  @@index([type, ts])
+}
+
+/// Дневные агрегаты — дашборд читает только их, не сырые события
+model DailyGuideStat {
+  id             Int      @id @default(autoincrement())
+  date           DateTime @db.Date
+  guideId        Int
+  views          Int      @default(0)
+  uniqueVisitors Int      @default(0)
+  reads          Int      @default(0) // дочитали
+  avgActiveSec   Int      @default(0)
+  scroll50       Int      @default(0)
+  scroll100      Int      @default(0)
+
+  @@unique([date, guideId])
+  @@index([date])
+}
+
+model DailyVideoStat {
+  id            Int      @id @default(autoincrement())
+  date          DateTime @db.Date
+  mediaId       Int
+  plays         Int      @default(0)
+  uniqueViewers Int      @default(0)
+  p25           Int      @default(0)
+  p50           Int      @default(0)
+  p75           Int      @default(0)
+  p95           Int      @default(0)
+  completes     Int      @default(0)
+  avgWatchSec   Int      @default(0)
+  bytesServed   BigInt   @default(0)
+
+  @@unique([date, mediaId])
+}
+
+model SearchQuery {
+  id             Int      @id @default(autoincrement())
+  q              String
+  resultCount    Int
+  userId         Int?
+  clickedGuideId Int?
+  ts             DateTime @default(now())
+
+  @@index([ts])
+}
+
+model GuideFeedback {
+  id      Int      @id @default(autoincrement())
+  guide   Guide    @relation(fields: [guideId], references: [id], onDelete: Cascade)
+  guideId Int
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId  Int
+  helpful Boolean
+  comment String?
+  ts      DateTime @default(now())
+
+  @@unique([guideId, userId])
+}
+
+/// Личный прогресс: что открыл, что дочитал, состояние чеклистов внутри гайда
+model UserGuideProgress {
+  id             Int       @id @default(autoincrement())
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId         Int
+  guide          Guide     @relation(fields: [guideId], references: [id], onDelete: Cascade)
+  guideId        Int
+  firstOpenedAt  DateTime  @default(now())
+  lastOpenedAt   DateTime  @default(now())
+  readAt         DateTime?
+  activeSec      Int       @default(0)
+  checklistState Json      @default("{}")
+  /// Позиция просмотра видео внутри гайда: { "<mediaId>": сек }
+  videoPositions Json      @default("{}")
+
+  @@unique([userId, guideId])
+  @@index([userId])
+}
+
+// ============ Бэкап и служебное ============
+
+enum BackupKind {
+  DB
+  CONTENT
+  MEDIA
+  FULL
+}
+
+enum BackupStatus {
+  RUNNING
+  SUCCESS
+  FAILED
+  PARTIAL
+}
+
+model BackupRun {
+  id            Int          @id @default(autoincrement())
+  kind          BackupKind
+  status        BackupStatus @default(RUNNING)
+  startedAt     DateTime     @default(now())
+  finishedAt    DateTime?
+  filesUploaded Int          @default(0)
+  filesSkipped  Int          @default(0)
+  bytesUploaded BigInt       @default(0)
+  driveFolderId String?
+  /// Ключ манифеста этого прогона в хранилище бэкапов
+  manifestKey   String?
+  error         String?
+  log           String?
+
+  @@index([startedAt])
+}
+
+/// Что и с каким хешем уже лежит на Drive — основа инкрементальности
+model BackupObject {
+  id          Int       @id @default(autoincrement())
+  key         String    @unique // media/original/ab12.jpg | content/fb-launch/guide.json
+  sha256      String
+  sizeBytes   BigInt
+  driveFileId String
+  driveMd5    String?
+  syncedAt    DateTime  @default(now())
+  /// Помечен к удалению (объекта больше нет в системе). Реально удаляется
+  /// по ретеншену BACKUP_TOMBSTONE_DAYS — защита от «админ снёс, бэкап повторил»
+  deletedAt   DateTime?
+
+  @@index([syncedAt])
+  @@index([deletedAt])
+}
+
+model AuditLog {
+  id       Int      @id @default(autoincrement())
+  userId   Int?
+  action   String // guide.publish, media.delete, user.role_change...
+  entity   String
+  entityId String?
+  diff     Json?
+  ip       String?
+  ts       DateTime @default(now())
+
+  @@index([ts])
+  @@index([entity, entityId])
+}
+
+/// key/value настройки — как ShopSetting в farm_please_shop
+model Setting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}

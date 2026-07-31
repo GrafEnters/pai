@@ -1,0 +1,91 @@
+# CI/CD по образцу polina-crm: SSH на VPS → git pull → docker compose up.
+# Переменные проекта (Settings → CI/CD → Variables):
+#   SSH_PRIVATE_KEY, SSH_KNOWN_HOSTS, SSH_USER, SSH_HOST, ENV_FILE (тип File)
+stages:
+  - deploy
+  - ops
+
+variables:
+  DEPLOY_DIR: /home/sonic/pai
+
+.ssh-base:
+  image: alpine:3.20
+  tags:
+    - did
+  before_script:
+    - apk add --no-cache openssh-client
+    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_ed25519
+    - chmod 600 ~/.ssh/id_ed25519
+    - echo "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+    - chmod 644 ~/.ssh/known_hosts
+
+deploy:
+  extends: .ssh-base
+  stage: deploy
+  script:
+    - ssh "$SSH_USER@$SSH_HOST" "mkdir -p $DEPLOY_DIR && cat > $DEPLOY_DIR/.env && chmod 600 $DEPLOY_DIR/.env" < "$ENV_FILE"
+    - |
+      ssh "$SSH_USER@$SSH_HOST" "
+        set -e
+        cd $DEPLOY_DIR
+        git pull --ff-only
+        docker compose build
+        docker compose up -d
+        docker image prune -f
+      "
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  environment:
+    name: production
+
+# Пересборка без кэша — отдельной ручной кнопкой.
+# В обычном деплое --no-cache намеренно НЕ используется: он замедляет сборку в разы.
+deploy-nocache:
+  extends: .ssh-base
+  stage: deploy
+  script:
+    - |
+      ssh "$SSH_USER@$SSH_HOST" "
+        set -e
+        cd $DEPLOY_DIR
+        git pull --ff-only
+        docker compose build --no-cache
+        docker compose up -d
+      "
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+      allow_failure: true
+  environment:
+    name: production
+
+backup-run:
+  extends: .ssh-base
+  stage: ops
+  script:
+    - ssh "$SSH_USER@$SSH_HOST" "cd $DEPLOY_DIR && docker compose exec -T backend node dist/scripts/backup.js --kind=FULL"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+      allow_failure: true
+
+restore-drill:
+  extends: .ssh-base
+  stage: ops
+  script:
+    - ssh "$SSH_USER@$SSH_HOST" "cd $DEPLOY_DIR && docker compose exec -T backend node dist/scripts/restore.js --latest --target=check"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+      allow_failure: true
+
+seed-demo:
+  extends: .ssh-base
+  stage: ops
+  script:
+    - ssh "$SSH_USER@$SSH_HOST" "cd $DEPLOY_DIR && docker compose exec -T backend node dist/seedDemo.js"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+      allow_failure: true
