@@ -10,6 +10,7 @@ import { MediaLibrary } from './pages/MediaLibrary';
 import { Guides } from './pages/Guides';
 import { GuideEditor } from './pages/GuideEditor';
 import { Structure } from './pages/Structure';
+import { Backups } from './pages/Backups';
 
 function Guard({ role, children }: { role?: Role; children: JSX.Element }) {
   const { user, loading, atLeast } = useAuth();
@@ -88,6 +89,14 @@ export default function App() {
           element={
             <Guard role="ADMIN">
               <Invites />
+            </Guard>
+          }
+        />
+        <Route
+          path="/backups"
+          element={
+            <Guard role="ADMIN">
+              <Backups />
             </Guard>
           }
         />

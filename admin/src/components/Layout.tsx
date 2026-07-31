@@ -30,7 +30,7 @@ const NAV: NavItem[] = [
   { to: '/stats', label: 'Статистика', icon: BarChart3, role: 'ADMIN', ready: false },
   { to: '/users', label: 'Пользователи', icon: UsersIcon, role: 'ADMIN', ready: true },
   { to: '/invites', label: 'Инвайты', icon: Ticket, role: 'ADMIN', ready: true },
-  { to: '/backups', label: 'Бэкапы', icon: DatabaseBackup, role: 'ADMIN', ready: false },
+  { to: '/backups', label: 'Бэкапы', icon: DatabaseBackup, role: 'ADMIN', ready: true },
   { to: '/audit', label: 'Аудит', icon: ScrollText, role: 'ADMIN', ready: true },
 ];
 

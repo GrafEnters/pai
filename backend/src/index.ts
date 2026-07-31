@@ -13,6 +13,7 @@ import { applySqlPatches } from './sqlPatches.js';
 import { startBot } from './bot.js';
 import { registerJob, setJobLogger, startJobs, stopJobs } from './jobs/index.js';
 import { registerMediaJobs } from './jobs/media.js';
+import { registerBackupJobs, scheduleBackupJobs } from './jobs/backup.js';
 import { authRoutes } from './routes/auth.js';
 import { uploadRoutes } from './routes/upload.js';
 import { publicRoutes } from './routes/public.js';
@@ -21,6 +22,7 @@ import { adminInviteRoutes } from './routes/admin/invites.js';
 import { adminMediaRoutes } from './routes/admin/media.js';
 import { adminGuideRoutes } from './routes/admin/guides.js';
 import { adminTaxonomyRoutes } from './routes/admin/taxonomy.js';
+import { adminBackupRoutes } from './routes/admin/backups.js';
 import { adminSystemRoutes } from './routes/admin/system.js';
 
 const app = Fastify({
@@ -123,6 +125,7 @@ await app.register(adminInviteRoutes, { prefix: '/api' });
 await app.register(adminMediaRoutes, { prefix: '/api' });
 await app.register(adminGuideRoutes, { prefix: '/api' });
 await app.register(adminTaxonomyRoutes, { prefix: '/api' });
+await app.register(adminBackupRoutes, { prefix: '/api' });
 await app.register(adminSystemRoutes, { prefix: '/api' });
 
 // ===== Старт =====
@@ -134,8 +137,12 @@ try {
     warn: (m) => app.log.warn(m),
     error: (e) => app.log.error(e),
   });
+  // Сначала обработчики — их можно объявлять до старта очереди
   await registerMediaJobs();
+  await registerBackupJobs((m) => app.log.info(m));
   await startJobs();
+  // Расписания — только после: без живой очереди cron ставить некуда
+  await scheduleBackupJobs();
   void registerJob; // обработчики остальных задач регистрируются в своих модулях
 
   await app.listen({ port: env.port, host: env.host });
