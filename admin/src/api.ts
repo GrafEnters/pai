@@ -130,6 +130,8 @@ export interface Media {
   processedAt: string | null;
   url: string;
   posterUrl: string | null;
+  /** Готовые srcset по форматам — собраны на backend */
+  srcset: { avif: string | null; webp: string | null };
   usedIn?: { id: number; title: string; slug: string }[];
 }
 

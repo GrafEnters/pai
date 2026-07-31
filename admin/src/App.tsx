@@ -6,6 +6,7 @@ import { Login } from './pages/Login';
 import { Users } from './pages/Users';
 import { Invites } from './pages/Invites';
 import { Audit } from './pages/Audit';
+import { MediaLibrary } from './pages/MediaLibrary';
 
 function Guard({ role, children }: { role?: Role; children: JSX.Element }) {
   const { user, loading, atLeast } = useAuth();
@@ -39,6 +40,14 @@ export default function App() {
         }
       >
         <Route path="/" element={<HomeRedirect />} />
+        <Route
+          path="/media"
+          element={
+            <Guard role="EDITOR">
+              <MediaLibrary />
+            </Guard>
+          }
+        />
         <Route
           path="/users"
           element={

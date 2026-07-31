@@ -1,17 +1,23 @@
+import fs from 'node:fs/promises';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import cookie from '@fastify/cookie';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import jwt from '@fastify/jwt';
+import fastifyStatic from '@fastify/static';
 import { env } from './env.js';
 import { prisma } from './db.js';
 import { ACCESS_COOKIE } from './auth.js';
 import { applySqlPatches } from './sqlPatches.js';
 import { startBot } from './bot.js';
+import { registerJob, setJobLogger, startJobs, stopJobs } from './jobs/index.js';
+import { registerMediaJobs } from './jobs/media.js';
 import { authRoutes } from './routes/auth.js';
+import { uploadRoutes } from './routes/upload.js';
 import { adminUserRoutes } from './routes/admin/users.js';
 import { adminInviteRoutes } from './routes/admin/invites.js';
+import { adminMediaRoutes } from './routes/admin/media.js';
 import { adminSystemRoutes } from './routes/admin/system.js';
 
 const app = Fastify({
@@ -36,6 +42,11 @@ await app.register(cors, {
 
 await app.register(cookie);
 
+// Тело неизвестного типа отдаём роуту как поток: так presigned PUT принимает
+// файл, не буферизуя его в память. JSON и text/plain разбираются как обычно —
+// у них есть свои, более специфичные парсеры.
+app.addContentTypeParser('*', (_req, payload, done) => done(null, payload));
+
 await app.register(jwt, {
   secret: env.jwtSecret,
   // Токен читается из httpOnly-cookie; Authorization: Bearer тоже работает
@@ -55,6 +66,22 @@ await app.register(rateLimit, {
   errorResponseBuilder: () => ({ error: 'Слишком много запросов, подождите минуту' }),
 });
 
+// Раздача медиа при STORAGE_PROVIDER=local. В проде на R2 этого не нужно:
+// файлы отдаёт CDN напрямую из бакета.
+if (env.storage.provider === 'local') {
+  await fs.mkdir(env.storage.localDir, { recursive: true });
+  await app.register(fastifyStatic, {
+    root: env.storage.localDir,
+    prefix: '/media/',
+    // Имена содержат content-hash ⇒ объект неизменяем
+    cacheControl: true,
+    maxAge: '365d',
+    immutable: true,
+    index: false,
+    setHeaders: (res) => res.setHeader('X-Content-Type-Options', 'nosniff'),
+  });
+}
+
 // ===== Здоровье =====
 app.get('/health', async () => {
   let db = false;
@@ -64,20 +91,50 @@ app.get('/health', async () => {
   } catch {
     db = false;
   }
-  return { ok: db, db };
+  let storageOk = false;
+  try {
+    await fs.access(env.storage.localDir);
+    storageOk = true;
+  } catch {
+    storageOk = env.storage.provider !== 'local';
+  }
+  const lastBackup = await prisma.backupRun
+    .findFirst({ where: { status: 'SUCCESS' }, orderBy: { finishedAt: 'desc' }, select: { finishedAt: true } })
+    .catch(() => null);
+
+  return {
+    ok: db,
+    db,
+    storage: storageOk,
+    storageProvider: env.storage.provider,
+    lastBackupAt: lastBackup?.finishedAt ?? null,
+  };
 });
 
 // ===== Роуты =====
 await app.register(authRoutes, { prefix: '/api' });
+await app.register(uploadRoutes, { prefix: '/api' });
 await app.register(adminUserRoutes, { prefix: '/api' });
 await app.register(adminInviteRoutes, { prefix: '/api' });
+await app.register(adminMediaRoutes, { prefix: '/api' });
 await app.register(adminSystemRoutes, { prefix: '/api' });
 
 // ===== Старт =====
 try {
   await applySqlPatches((m) => app.log.info(m));
+
+  setJobLogger({
+    info: (m) => app.log.info(m),
+    warn: (m) => app.log.warn(m),
+    error: (e) => app.log.error(e),
+  });
+  await registerMediaJobs();
+  await startJobs();
+  void registerJob; // обработчики остальных задач регистрируются в своих модулях
+
   await app.listen({ port: env.port, host: env.host });
   app.log.info(`[api] слушаю http://localhost:${env.port}`);
+  app.log.info(`[storage] провайдер: ${env.storage.provider}`);
   await startBot((m) => app.log.info(m));
 } catch (err) {
   app.log.error(err);
@@ -88,6 +145,7 @@ for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sig, async () => {
     app.log.info(`получен ${sig}, останавливаюсь`);
     await app.close();
+    await stopJobs();
     await prisma.$disconnect();
     process.exit(0);
   });
