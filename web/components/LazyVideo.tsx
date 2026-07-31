@@ -12,7 +12,18 @@ import { track } from '@/lib/analytics';
  *
  * Позиция просмотра запоминается локально и на сервере (§7.3).
  */
-export function LazyVideo({ media, guideId, startAt = 0 }: { media: MediaRef; guideId: number; startAt?: number }) {
+export function LazyVideo({
+  media,
+  guideId,
+  startAt = 0,
+  priority = false,
+}: {
+  media: MediaRef;
+  guideId: number;
+  startAt?: number;
+  /** Первый визуальный блок страницы: его постер — это LCP, грузим сразу. */
+  priority?: boolean;
+}) {
   const [started, setStarted] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const sent = useRef(new Set<number>());
@@ -107,7 +118,8 @@ export function LazyVideo({ media, guideId, startAt = 0 }: { media: MediaRef; gu
             alt=""
             width={media.width ?? undefined}
             height={media.height ?? undefined}
-            loading="lazy"
+            loading={priority ? 'eager' : 'lazy'}
+            {...(priority ? { fetchPriority: 'high' as const } : {})}
             className="h-auto w-full"
           />
         ) : (

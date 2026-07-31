@@ -14,8 +14,10 @@ interface Ctx {
   media: Record<string, MediaRef>;
   guideRefs: GuideFull['guideRefs'];
   guideId: number;
-  /** Порядковый номер блока — первые картинки грузим сразу, остальные лениво */
-  counter: { images: number };
+  /** Сколько визуальных блоков уже отрисовано: самый первый — вероятный LCP,
+   *  его грузим сразу, остальные лениво. Картинки и видео считаются вместе:
+   *  в видеогайде первым блоком идёт именно видео. */
+  counter: { visuals: number };
   anchors: Map<string, number>;
 }
 
@@ -24,7 +26,7 @@ export function GuideContent({ guide }: { guide: GuideFull }) {
     media: guide.media,
     guideRefs: guide.guideRefs,
     guideId: guide.id,
-    counter: { images: 0 },
+    counter: { visuals: 0 },
     anchors: new Map(),
   };
   return <>{renderNodes(guide.content.content ?? [], ctx)}</>;
@@ -127,7 +129,10 @@ function renderNode(node: DocNode, ctx: Ctx): ReactNode {
     case 'video': {
       const media = ctx.media[String(node.attrs?.mediaId)];
       if (!media) return null;
-      return <LazyVideo media={media} guideId={ctx.guideId} startAt={Number(node.attrs?.startAt ?? 0)} />;
+      const first = ctx.counter.visuals++ === 0;
+      return (
+        <LazyVideo media={media} guideId={ctx.guideId} startAt={Number(node.attrs?.startAt ?? 0)} priority={first} />
+      );
     }
 
     case 'fileAttachment': {
@@ -239,7 +244,7 @@ function GuideImage({ node, ctx }: { node: DocNode; ctx: Ctx }) {
   const media = ctx.media[String(node.attrs?.mediaId)];
   if (!media) return null;
 
-  const index = ctx.counter.images++;
+  const index = ctx.counter.visuals++;
   const caption = node.attrs?.caption ? String(node.attrs.caption) : null;
   const alt = String(node.attrs?.alt ?? media.alt ?? caption ?? '');
 

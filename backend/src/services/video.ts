@@ -8,6 +8,46 @@ import { storage } from './storage/index.js';
 
 const exec = promisify(execFile);
 
+/**
+ * Где взять ffmpeg. Порядок: явный путь из .env → бинарник в PATH →
+ * пакет ffmpeg-static, если он поставился.
+ *
+ * ffmpeg-static лежит в optionalDependencies: на чистой машине он ставится сам
+ * и видео обрабатывается «из коробки», но если скачать бинарник не удалось
+ * (нет сети, экзотическая платформа), npm install не падает, а система
+ * продолжает работать без постеров — см. DECISIONS §7.
+ */
+async function resolveBinaries(): Promise<{ ffmpeg: string; ffprobe: string } | null> {
+  const candidates: Array<{ ffmpeg: string; ffprobe: string }> = [];
+
+  if (env.media.ffmpegPath !== 'ffmpeg' || env.media.ffprobePath !== 'ffprobe') {
+    candidates.push({ ffmpeg: env.media.ffmpegPath, ffprobe: env.media.ffprobePath });
+  }
+  candidates.push({ ffmpeg: 'ffmpeg', ffprobe: 'ffprobe' });
+
+  try {
+    const [ffmpegStatic, ffprobeStatic] = await Promise.all([
+      import('ffmpeg-static').then((m) => (m.default ?? m) as unknown as string),
+      import('ffprobe-static').then((m) => ((m.default ?? m) as { path: string }).path),
+    ]);
+    if (ffmpegStatic && ffprobeStatic) candidates.push({ ffmpeg: ffmpegStatic, ffprobe: ffprobeStatic });
+  } catch {
+    // пакета нет — это допустимо
+  }
+
+  for (const candidate of candidates) {
+    try {
+      await exec(candidate.ffmpeg, ['-version'], { timeout: 15_000 });
+      return candidate;
+    } catch {
+      /* пробуем следующий */
+    }
+  }
+  return null;
+}
+
+let binaries: { ffmpeg: string; ffprobe: string } | null = null;
+
 export interface VideoProbe {
   durationSec: number | null;
   width: number | null;
@@ -22,25 +62,22 @@ export interface ProcessedVideo extends VideoProbe {
   note: string | null;
 }
 
-let ffmpegChecked: boolean | null = null;
+let resolved = false;
 
-/** Есть ли ffmpeg. Проверяем один раз за процесс: спавн процесса не бесплатный. */
+/** Есть ли ffmpeg. Ищем один раз за процесс: спавн процесса не бесплатный. */
 export async function hasFfmpeg(): Promise<boolean> {
-  if (ffmpegChecked !== null) return ffmpegChecked;
-  try {
-    await exec(env.media.ffmpegPath, ['-version'], { timeout: 10_000 });
-    ffmpegChecked = true;
-  } catch {
-    ffmpegChecked = false;
+  if (!resolved) {
+    binaries = await resolveBinaries();
+    resolved = true;
   }
-  return ffmpegChecked;
+  return binaries !== null;
 }
 
 async function probe(file: string): Promise<VideoProbe> {
   const empty: VideoProbe = { durationSec: null, width: null, height: null, bitrate: null };
   try {
     const { stdout } = await exec(
-      env.media.ffprobePath,
+      binaries!.ffprobe,
       ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', file],
       { timeout: 60_000, maxBuffer: 8 * 1024 * 1024 },
     );
@@ -82,7 +119,7 @@ export async function processVideo(originalKey: string, sha256: string): Promise
   if (!(await hasFfmpeg())) {
     return {
       ...fallback,
-      note: 'ffmpeg не найден: видео сохранено как есть, без постера и метаданных. Установите ffmpeg или задайте FFMPEG_PATH.',
+      note: 'ffmpeg не найден: видео сохранено как есть, без постера и метаданных. Поставьте ffmpeg в PATH или задайте FFMPEG_PATH.',
     };
   }
 
@@ -100,7 +137,7 @@ export async function processVideo(originalKey: string, sha256: string): Promise
       const posterFile = path.join(tmpDir, 'poster.jpg');
       try {
         await exec(
-          env.media.ffmpegPath,
+          binaries!.ffmpeg,
           ['-y', '-ss', at.toFixed(2), '-i', localFile, '-frames:v', '1', '-q:v', '3', posterFile],
           { timeout: 120_000 },
         );
