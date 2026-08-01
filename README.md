@@ -6,7 +6,7 @@
 Полное техническое задание — [PLAN.md](PLAN.md).
 Что уже сделано и что осталось — [PROGRESS.md](PROGRESS.md).
 Самостоятельно принятые решения — [DECISIONS.md](DECISIONS.md).
-Развёртывание на Amvera Cloud — [SETUP.md](SETUP.md).
+Развёртывание на Amvera Cloud (одно приложение) — [SETUP.md](SETUP.md).
 
 ---
 
@@ -52,7 +52,9 @@ pai/
 │       └── scripts/      drive:auth, backup, restore
 ├── web/                  Next.js 15 — публичный сайт (SSG/ISR)
 ├── admin/                Vite + React — админка (редактор, медиа, статистика)
-├── */amvera.yml               конфиги проектов Amvera (порт, диск)
+├── Dockerfile                 комбинированный образ для Amvera (всё в одном)
+├── amvera.yml                 конфиг проекта Amvera (порт, постоянный диск)
+├── deploy/                    nginx, supervisor и старт backend внутри образа
 ├── docker-compose.yml         прод-стек для своего VPS (на Amvera не нужен)
 ├── docker-compose.local.yml   только Postgres для локальной разработки
 ├── Caddyfile                  TLS на своём VPS (на Amvera не нужен)

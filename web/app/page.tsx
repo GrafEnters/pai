@@ -24,7 +24,7 @@ export default async function HomePage() {
 
   return (
     <>
-      <Header me={me} categories={categories} />
+      <Header categories={categories} />
       <PageViewTracker />
 
       <main className="mx-auto max-w-6xl px-4 py-8">

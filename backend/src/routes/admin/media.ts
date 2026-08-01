@@ -68,18 +68,26 @@ export async function adminMediaRoutes(app: FastifyInstance) {
     }
 
     const key = `original/${sha256.toLowerCase()}.${extForMime(mime, name)}`;
-    const media = await prisma.media.create({
-      data: {
-        type,
-        status: 'PENDING',
-        key,
-        originalName: name.slice(0, 300),
-        mime,
-        sizeBytes: BigInt(size),
-        sha256: sha256.toLowerCase(),
-        uploadedById: currentUser(req).id,
-      },
-    });
+
+    // Запись с таким ключом может остаться от прерванной загрузки: браузер
+    // закрыли между presign и завершением. Ключ уникален, поэтому создавать
+    // вторую нельзя — переиспользуем незавершённую, иначе файл оказался бы
+    // заблокирован навсегда и повторная попытка падала бы с ошибкой уникальности.
+    const stale = await prisma.media.findUnique({ where: { key } });
+    const data = {
+      type,
+      status: 'PENDING' as const,
+      originalName: name.slice(0, 300),
+      mime,
+      sizeBytes: BigInt(size),
+      sha256: sha256.toLowerCase(),
+      uploadedById: currentUser(req).id,
+      error: null,
+    };
+
+    const media = stale
+      ? await prisma.media.update({ where: { id: stale.id }, data })
+      : await prisma.media.create({ data: { ...data, key } });
 
     const { url, headers } = await storage.presignPut(key, mime, size);
     return { deduplicated: false, mediaId: media.id, key, uploadUrl: url, headers };

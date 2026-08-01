@@ -2,8 +2,11 @@ import axios from 'axios';
 
 // Токен живёт в httpOnly-cookie (PLAN §5), поэтому в localStorage ничего не храним —
 // контент чувствительный. Отсюда withCredentials на каждом запросе.
+/** Пусто = API на том же origin (сборка для Amvera), иначе отдельный домен. */
+export const API_BASE = import.meta.env.VITE_API_URL || '';
+
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL + '/api',
+  baseURL: API_BASE + '/api',
   withCredentials: true,
 });
 
@@ -13,7 +16,7 @@ let refreshing: Promise<boolean> | null = null;
 async function refreshOnce(): Promise<boolean> {
   if (!refreshing) {
     refreshing = axios
-      .post(import.meta.env.VITE_API_URL + '/api/auth/refresh', {}, { withCredentials: true })
+      .post(API_BASE + '/api/auth/refresh', {}, { withCredentials: true })
       .then(() => true)
       .catch(() => false)
       .finally(() => {

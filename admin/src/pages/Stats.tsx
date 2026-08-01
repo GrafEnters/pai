@@ -13,7 +13,7 @@ import {
   YAxis,
 } from 'recharts';
 import { Download, RefreshCw } from 'lucide-react';
-import { api, type TeamRole } from '../api';
+import { api, API_BASE, type TeamRole } from '../api';
 import { TEAM_ROLE_LABEL } from './Users';
 
 type Tab = 'overview' | 'guides' | 'videos' | 'search' | 'stale' | 'users';
@@ -72,7 +72,7 @@ export function Stats() {
             <RefreshCw size={14} className={rollup.isPending ? 'animate-spin' : ''} />
             Пересчитать
           </button>
-          <a className="btn-ghost" href={`${import.meta.env.VITE_API_URL}/api/admin/stats/export?format=xlsx&from=${from}`}>
+          <a className="btn-ghost" href={`${API_BASE}/api/admin/stats/export?format=xlsx&from=${from}`}>
             <Download size={14} />
             XLSX
           </a>

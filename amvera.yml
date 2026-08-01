@@ -1,0 +1,22 @@
+# Конфигурация проекта Amvera. Один проект на всю систему.
+#
+# Пушится целиком:  git push amvera main:master
+#
+# Внутри контейнера nginx слушает 80 и разводит запросы:
+#   /api/*   и /media/*  → backend (127.0.0.1:3001)
+#   /admin/*             → статика админки
+#   всё остальное        → Next.js  (127.0.0.1:3000)
+#
+# persistenceMount — единственная папка, переживающая пересборку.
+# В ней лежат загруженные медиа и бэкапы; /app при пересборке теряется.
+
+meta:
+  environment: docker
+
+build:
+  dockerfile: Dockerfile
+
+run:
+  containerPort: 80
+  servicePort: 80
+  persistenceMount: /data

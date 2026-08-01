@@ -1,16 +1,18 @@
 import Link from 'next/link';
 import type { CategoryNode, GuideCard } from '@/lib/types';
-import type { Me } from '@/lib/api';
 import { LEVEL_LABEL, readingTimeLabel } from '@/lib/types';
 import { SearchBox } from './SearchBox';
 import { LogoutButton } from './LogoutButton';
-import { SessionRefresher } from './SessionRefresher';
+import { CurrentUser } from './CurrentUser';
 
-export function Header({ me, categories }: { me: Me | null; categories: CategoryNode[] }) {
+/**
+ * Шапка — серверный компонент без обращения к cookie: иначе страницы гайда
+ * и категории перестали бы быть статическими. Имя пользователя подгружает
+ * <CurrentUser /> уже в браузере.
+ */
+export function Header({ categories }: { categories: CategoryNode[] }) {
   return (
     <header className="sticky top-0 z-40 border-b border-ink-800 bg-ink-950/90 backdrop-blur">
-      {/* access протух, но refresh жив — обновляем пару и перерисовываем */}
-      {!me && <SessionRefresher />}
       <div className="mx-auto flex max-w-6xl items-center gap-4 px-4 py-3">
         <Link href="/" className="shrink-0 font-semibold text-white">
           PAI Guides
@@ -31,9 +33,7 @@ export function Header({ me, categories }: { me: Me | null; categories: Category
 
         <div className="ml-auto flex items-center gap-2">
           <SearchBox />
-          <Link href="/me" className="hidden text-sm text-ink-400 hover:text-ink-200 sm:block">
-            {me?.name ?? 'Профиль'}
-          </Link>
+          <CurrentUser />
           <LogoutButton />
         </div>
       </div>

@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { getMe, publicFetch, serverFetch } from '@/lib/api';
+import { publicFetch, serverFetch } from '@/lib/api';
 import type { CategoryNode, SearchHit } from '@/lib/types';
 import { readingTimeLabel } from '@/lib/types';
 import { EmptyState, Header } from '@/components/Shell';
@@ -12,10 +12,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
   const { q = '' } = await searchParams;
   const query = q.trim();
 
-  const [categories, me] = await Promise.all([
-    publicFetch<CategoryNode[]>('/categories', 3600, ['categories']),
-    getMe(),
-  ]);
+  const categories = await publicFetch<CategoryNode[]>('/categories', 3600, ['categories']);
 
   let hits: SearchHit[] = [];
   let suggestions: { slug: string; title: string }[] = [];
@@ -36,7 +33,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
 
   return (
     <>
-      <Header me={me} categories={categories} />
+      <Header categories={categories} />
 
       <main className="mx-auto max-w-3xl px-4 py-8">
         <h1 className="text-2xl font-semibold text-white">

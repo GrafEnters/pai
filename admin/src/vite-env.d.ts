@@ -1,7 +1,9 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
+  /** Пусто = API на том же origin */
   readonly VITE_API_URL: string;
+  readonly VITE_WEB_URL?: string;
 }
 
 interface ImportMeta {

@@ -46,9 +46,14 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  const url = req.nextUrl.clone();
-  url.pathname = '/login';
-  url.search = '';
+  // Внешний адрес берём из заголовков, а не из req.nextUrl: за обратным прокси
+  // Next.js строит nextUrl от адреса, на котором слушает сам (127.0.0.1:3000),
+  // и увёл бы пользователя на внутренний адрес контейнера.
+  // Относительный Location тоже не подходит — middleware разбирает его как URL.
+  const host = req.headers.get('x-forwarded-host') ?? req.headers.get('host') ?? req.nextUrl.host;
+  const proto = req.headers.get('x-forwarded-proto') ?? req.nextUrl.protocol.replace(':', '');
+
+  const url = new URL(`${proto}://${host}/login`);
   if (pathname !== '/') url.searchParams.set('next', pathname + search);
   return NextResponse.redirect(url);
 }

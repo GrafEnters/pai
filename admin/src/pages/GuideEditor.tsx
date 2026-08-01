@@ -25,6 +25,10 @@ const LEVEL_LABEL: Record<GuideLevel, string> = {
 
 const AUTOSAVE_MS = 5000;
 
+// Сайт и админка на одном домене (сборка для Amvera) — ссылка относительная.
+// Локально они на разных портах, поэтому адрес полный.
+const WEB_BASE = import.meta.env.VITE_WEB_URL ?? (import.meta.env.VITE_API_URL ? 'http://localhost:3000' : '');
+
 export function GuideEditor() {
   const { id } = useParams<{ id: string }>();
   const guideId = Number(id);
@@ -150,7 +154,7 @@ export function GuideEditor() {
 
         <a
           className="btn-ghost"
-          href={`${import.meta.env.VITE_WEB_URL ?? 'http://localhost:3000'}/g/${guide.slug}?preview=1`}
+          href={`${WEB_BASE}/g/${guide.slug}?preview=1`}
           target="_blank"
           rel="noreferrer"
         >

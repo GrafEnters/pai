@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import type { Metadata } from 'next';
-import { ApiError, getMe, publicFetch } from '@/lib/api';
+import { ApiError, publicFetch } from '@/lib/api';
 import type { CategoryNode, GuideFull } from '@/lib/types';
 import { LEVEL_LABEL, readingTimeLabel } from '@/lib/types';
 import { GuideCardView, Header } from '@/components/Shell';
@@ -47,17 +47,18 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 export default async function GuidePage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
 
-  const [guide, categories, me] = await Promise.all([
+  // Никакого чтения cookie: страница отдаётся из ISR-кэша готовым HTML.
+  // Персональное (имя в шапке, прогресс, фидбек) подтягивается на клиенте.
+  const [guide, categories] = await Promise.all([
     loadGuide(slug),
     publicFetch<CategoryNode[]>('/categories', 3600, ['categories']),
-    getMe(),
   ]);
 
   if (!guide) notFound();
 
   return (
     <>
-      <Header me={me} categories={categories} />
+      <Header categories={categories} />
       <ReadingTracker guideId={guide.id} readingTimeSec={guide.readingTimeSec} />
 
       <div className="mx-auto flex max-w-6xl gap-8 px-4 py-8">
