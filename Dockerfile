@@ -62,8 +62,13 @@ WORKDIR /app
 
 # nginx — маршрутизация, supervisor — три процесса в одном контейнере,
 # ffmpeg — постеры видео, postgresql-client — pg_dump для бэкапа
+#
+# Клиент 18, хотя кластер Amvera сейчас 17.5: pg_dump отказывается работать
+# с сервером СТАРШЕ себя, а младшие дампит штатно. Клиент «под текущую версию»
+# ломается при первом же обновлении кластера — так и вышло с 16-м (см. SETUP.md,
+# ловушка 4), и бэкап молча съезжал на менее точный ndjson.
 RUN apk add --no-cache \
-      nginx supervisor openssl libc6-compat ffmpeg postgresql16-client \
+      nginx supervisor openssl libc6-compat ffmpeg postgresql18-client \
  && mkdir -p /run/nginx /data/storage /data/backups
 
 # --- backend ---

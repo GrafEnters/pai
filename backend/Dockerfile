@@ -17,8 +17,10 @@ FROM node:20-alpine AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 # ffmpeg — нормализация видео и постеры (этап 3.4/7.1)
-# postgresql-client — pg_dump для бэкапа БД (этап 9)
-RUN apk add --no-cache openssl libc6-compat ffmpeg postgresql16-client
+# postgresql-client — pg_dump для бэкапа БД (этап 9). Версия клиента — самая
+# свежая, а не «под текущий сервер»: pg_dump не работает с сервером старше себя,
+# младшие же дампит штатно (см. корневой Dockerfile)
+RUN apk add --no-cache openssl libc6-compat ffmpeg postgresql18-client
 COPY package.json package-lock.json* ./
 RUN npm install --omit=dev && npm cache clean --force
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
