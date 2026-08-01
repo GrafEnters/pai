@@ -88,15 +88,33 @@ const server = http.createServer(async (req, res) => {
       );
     }
 
-    await setSetting(SETTING_KEYS.googleRefreshToken, tokens.refresh_token);
+    // Печатаем ПЕРЕД сохранением. Токен выдаётся один раз: если запись в базу
+    // упадёт (её может не быть под рукой — скрипт часто гоняют не там, где прод),
+    // потерять его нельзя, иначе всю авторизацию придётся проходить заново.
+    console.log('\n✅ Refresh-токен получен:\n');
+    console.log(`GOOGLE_REFRESH_TOKEN=${tokens.refresh_token}\n`);
+    console.log('Скопируйте эту строку СЕЙЧАС — второй раз Google её не покажет.');
+    console.log('Куда вставить: переменные проекта в Amvera, тип «секрет», этап «Запуск».\n');
+
+    let saved = false;
+    try {
+      await setSetting(SETTING_KEYS.googleRefreshToken, tokens.refresh_token);
+      saved = true;
+      console.log('Токен также сохранён в настройках локальной базы.\n');
+    } catch (saveError) {
+      console.log(`Сохранить в локальную базу не вышло (${String(saveError)}).`);
+      console.log('Это не страшно: на прод токен всё равно попадает через переменные.\n');
+    }
 
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-    res.end('<h1>Готово</h1><p>Refresh-токен получен и сохранён. Можно закрыть вкладку.</p>');
+    res.end(
+      '<h1>Готово</h1><p>Refresh-токен получен. Вернитесь в консоль — он напечатан там.</p>' +
+        (saved ? '' : '<p>В локальную базу сохранить не удалось, но токен в консоли есть.</p>'),
+    );
 
-    console.log('\n✅ Refresh-токен получен и сохранён в настройках приложения.\n');
-    console.log('Продублируйте его в .env, чтобы пережить пересоздание базы:\n');
-    console.log(`GOOGLE_REFRESH_TOKEN=${tokens.refresh_token}\n`);
-    console.log('Проверьте, что всё работает:  npm run backup -- --kind=DB\n');
+    console.log('Дальше: вставить токен в переменные Amvera → пересобрать →');
+    console.log('в админке «Бэкапы» нажать «Сохранить всё на Google Drive»,');
+    console.log('затем обязательно «Проверить копию на Диске».\n');
 
     server.close();
     await prisma.$disconnect();

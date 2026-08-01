@@ -387,10 +387,15 @@ Amvera**. Вторая копия лежит вне площадки, и это 
 
 Пока эта проверка не прошла — считайте, что второй копии нет.
 
+> **Интерфейс Google Cloud переделали.** Пункта «OAuth consent screen» больше нет:
+> его заменил раздел **APIs & Services → Google Auth Platform** с вкладками
+> **Branding**, **Audience**, **Data Access**, **Clients**. Ниже пути указаны
+> для нового интерфейса.
+
 ### ⚠️ A. Статус приложения — «In production», а не «Testing»
 
 [console.cloud.google.com](https://console.cloud.google.com) → APIs & Services →
-OAuth consent screen → **PUBLISH APP**.
+Google Auth Platform → вкладка **Audience** → кнопка **PUBLISH APP**.
 
 **Если забыть:** в статусе *Testing* refresh-токен протухает **ровно через 7 дней**.
 Бэкапы отвалятся через неделю после запуска — когда все расслабились.
@@ -399,9 +404,13 @@ OAuth consent screen → **PUBLISH APP**.
 
 ### ⚠️ B. Scope — ровно один: `drive.file`, НЕ `drive`
 
-**Если взять `drive`:** приложение попадёт в *restricted scope* и потребует
-платной верификации Google. `drive.file` даёт доступ только к файлам, созданным
-самим приложением, — этого достаточно.
+Задаётся на вкладке **Data Access** → «Add or remove scopes» → вписать вручную
+`https://www.googleapis.com/auth/drive.file`.
+
+**Если взять `drive`:** он относится к *restricted* и требует проверки Google
+с аудитом безопасности. `drive.file` — **non-sensitive**, ему нужна только
+базовая проверка, поэтому схема работает и на обычном личном аккаунте.
+Доступ он даёт лишь к файлам, созданным самим приложением.
 
 **Следствие:** папку `PAI Backups` **нельзя создать руками** в веб-интерфейсе
 Диска — приложению она не будет видна. Её создаёт само приложение.
@@ -415,11 +424,18 @@ access-токен, а refresh — нет, и **это не видно из от�
 
 ### Настройка
 
-1. Завести **выделенный** Google-аккаунт (не личный), 2FA, коды в менеджер паролей.
-2. Google Cloud → проект → включить **Google Drive API**.
-3. OAuth consent screen: scope `drive.file` (B), затем PUBLISH APP (A).
-4. Credentials → OAuth client ID → тип **Desktop app**.
-5. Локально: `cd backend && npm run drive:auth`.
+1. Аккаунт. **Выделенный** (например `pai.backup@gmail.com`) надёжнее личного:
+   смена пароля владельца отзывает токен, а 15 ГБ бесплатного места делятся
+   с почтой и фото. Личный тоже работает — приложение со scope `drive.file`
+   физически не видит остальной ваш Диск.
+2. Google Cloud → создать проект → **APIs & Services → Library** →
+   «Google Drive API» → **Enable**.
+3. **Google Auth Platform → Branding**: название приложения и контактные почты.
+4. **Audience**: User type **External**, затем **PUBLISH APP** (ловушка A).
+5. **Data Access**: добавить scope `drive.file` (ловушка B).
+6. **Clients** → Create client → тип **Desktop app** → Client ID и Client Secret.
+7. Положить их в локальный `backend/.env` и выполнить `npm run drive:auth`
+   (ловушка C уже зашита в ссылку авторизации).
 6. В переменные проекта секретами: `GOOGLE_OAUTH_CLIENT_ID`,
    `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`.
    `BACKUP_PROVIDER` **не трогайте** — он остаётся `local-drive`,
