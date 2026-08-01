@@ -6,7 +6,7 @@
 Полное техническое задание — [PLAN.md](PLAN.md).
 Что уже сделано и что осталось — [PROGRESS.md](PROGRESS.md).
 Самостоятельно принятые решения — [DECISIONS.md](DECISIONS.md).
-Что нужно сделать руками при выкатке на прод — [SETUP.md](SETUP.md).
+Развёртывание на Amvera Cloud — [SETUP.md](SETUP.md).
 
 ---
 
@@ -52,10 +52,11 @@ pai/
 │       └── scripts/      drive:auth, backup, restore
 ├── web/                  Next.js 15 — публичный сайт (SSG/ISR)
 ├── admin/                Vite + React — админка (редактор, медиа, статистика)
-├── docker-compose.yml         прод-стек целиком
+├── */amvera.yml               конфиги проектов Amvera (порт, диск)
+├── docker-compose.yml         прод-стек для своего VPS (на Amvera не нужен)
 ├── docker-compose.local.yml   только Postgres для локальной разработки
-├── Caddyfile                  реверс-прокси и TLS на проде
-├── .gitlab-ci.yml             деплой по SSH
+├── Caddyfile                  TLS на своём VPS (на Amvera не нужен)
+├── .gitlab-ci.yml             деплой по SSH на свой VPS
 ├── storage/                   [локально] загруженные медиафайлы
 └── backups/                   [локально] бэкапы
 ```

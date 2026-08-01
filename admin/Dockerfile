@@ -5,7 +5,10 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm install
 COPY . .
-ARG VITE_API_URL
+# ВНИМАНИЕ: адрес API вшивается в бандл на этапе СБОРКИ.
+# Amvera не отдаёт переменные окружения во время сборки, поэтому на ней
+# значение берётся отсюда — впишите свой домен API до первого пуша (SETUP.md).
+ARG VITE_API_URL=http://localhost:3001
 ENV VITE_API_URL=${VITE_API_URL}
 RUN npm run build
 

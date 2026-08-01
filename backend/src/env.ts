@@ -30,6 +30,8 @@ const schema = z.object({
 
   DATABASE_URL: z.string().min(1, 'DATABASE_URL обязателен'),
   BACKEND_PORT: num(3001),
+  // Amvera и большинство PaaS задают порт через PORT — принимаем и его
+  PORT: optionalStr,
   HOST: z.string().default('0.0.0.0'),
 
   JWT_SECRET: z.string().default(DEFAULT_JWT_SECRET),
@@ -124,7 +126,7 @@ export const env = {
   logLevel: e.LOG_LEVEL,
 
   databaseUrl: e.DATABASE_URL,
-  port: e.BACKEND_PORT,
+  port: e.PORT ? Number(e.PORT) : e.BACKEND_PORT,
   host: e.HOST,
 
   jwtSecret: e.JWT_SECRET,

@@ -10,7 +10,10 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-ARG NEXT_PUBLIC_API_URL
+# ВНИМАНИЕ: адрес API вшивается в бандл на этапе СБОРКИ.
+# Amvera не отдаёт переменные окружения во время сборки, поэтому на ней
+# значение берётся отсюда — впишите свой домен API до первого пуша (SETUP.md).
+ARG NEXT_PUBLIC_API_URL=http://localhost:3001
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV NEXT_TELEMETRY_DISABLED=1
 # Явно, хотя next build выставляет это и сам: от NODE_ENV зависит distDir

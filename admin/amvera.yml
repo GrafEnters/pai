@@ -1,0 +1,16 @@
+# Конфигурация проекта Amvera для админки.
+#
+#   git subtree push --prefix admin amvera-admin master
+#
+# Собранный Vite-бандл раздаёт nginx из образа. Постоянный диск не нужен:
+# в контейнере нет ничего, кроме статики.
+
+meta:
+  environment: docker
+
+build:
+  dockerfile: Dockerfile
+
+run:
+  containerPort: 80
+  servicePort: 80
