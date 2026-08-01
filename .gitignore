@@ -20,3 +20,5 @@ out/
 # Временные файлы обработки медиа и восстановления
 tmp/
 .restore/
+# Кэш wrangler (создаётся при работе с Cloudflare R2 из CLI)
+.wrangler/

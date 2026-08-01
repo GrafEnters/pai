@@ -21,6 +21,26 @@ function safePath(key: string): string {
 
 const UPLOAD_TTL_SEC = 15 * 60;
 
+/**
+ * Куда браузер отправит presigned PUT: либо origin абсолютного адреса медиа,
+ * либо пустая строка — то есть путь от корня.
+ *
+ * Ровно два допустимых вида, и это не придирчивость. Относительный адрес
+ * браузер достраивает от УЖЕ ОТКРЫТОЙ СТРАНИЦЫ, а открыта админка: PUT уходил
+ * в `/admin/<...>/api/upload/local`, попадал в статику и получал 405. Разбирать
+ * же путь из адреса медиа (раньше здесь снимался хвост `/media`) незачем:
+ * от него нужен только origin, а `/api` висит в корне при любой раскладке.
+ */
+function uploadBase(): string {
+  const raw = env.storage.localPublicUrl;
+  if (!/^https?:\/\//i.test(raw)) return '';
+  try {
+    return new URL(raw).origin;
+  } catch {
+    return '';
+  }
+}
+
 /** Подпись presigned-ссылки. Секрет тот же, что у JWT — отдельный заводить незачем. */
 export function signUpload(key: string, mime: string, size: number, exp: number): string {
   return crypto
@@ -56,7 +76,7 @@ export const localStorage: StorageProvider = {
     const sig = signUpload(key, mime, size, exp);
     const qs = new URLSearchParams({ key, mime, size: String(size), exp: String(exp), sig });
     return {
-      url: `${env.storage.localPublicUrl.replace(/\/media$/, '')}/api/upload/local?${qs}`,
+      url: `${uploadBase()}/api/upload/local?${qs}`,
       headers: { 'content-type': mime },
     };
   },

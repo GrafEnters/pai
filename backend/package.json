@@ -15,9 +15,11 @@
     "seed:demo": "tsx src/seedDemo.ts",
     "drive:auth": "tsx src/scripts/driveAuth.ts",
     "backup": "tsx src/scripts/backup.ts",
+    "storage:check": "tsx src/scripts/storageCheck.ts",
     "restore": "tsx src/scripts/restore.ts",
     "test": "vitest run",
-    "seed:video": "tsx src/seedVideoDemo.ts"
+    "seed:video": "tsx src/seedVideoDemo.ts",
+    "seed:remote": "tsx src/scripts/seedRemote.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.658.0",

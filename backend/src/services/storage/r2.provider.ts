@@ -30,10 +30,14 @@ function client(): S3Client {
     );
   }
   cached = new S3Client({
-    // R2 игнорирует регион, но SDK требует его указать
-    region: 'auto',
+    // R2 регион игнорирует, отсюда 'auto' по умолчанию. Но у Hetzner, Backblaze
+    // и прочих S3 регион входит в подпись, и с 'auto' они отвечают 403
+    region: env.storage.r2.region,
     endpoint,
     credentials: { accessKeyId, secretAccessKey },
+    // Адресация «бакет в пути» вместо поддомена. Нужна MinIO и другим
+    // self-hosted сборкам, где поддомен бакета попросту не резолвится
+    forcePathStyle: env.storage.r2.forcePathStyle,
   });
   return cached;
 }

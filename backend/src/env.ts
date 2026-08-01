@@ -5,15 +5,17 @@ import { z } from 'zod';
 import { backendDir, repoRoot, resolveDataPath } from './paths.js';
 
 /**
- * Читаем два файла: свой и общий корневой.
+ * Читаем два файла: общий корневой и свой.
  *
- * В репозитории источник истины — корневой `.env`, а `start.cmd` копирует его
- * в `backend/.env` при запуске. Если править корневой файл после этого,
- * скрипты вроде `npm run drive:auth` брали бы устаревшую копию и жаловались
- * на «не заданы переменные», хотя они заданы.
+ * Источник истины — корневой `.env`; `backend/.env` это его копия, которую
+ * делает `start.cmd`. Поэтому корневой файл читается ПЕРВЫМ и выигрывает:
+ * иначе копия молча перебивает оригинал, и правка источника истины не даёт
+ * никакого эффекта. Ровно так и вышло при подключении R2 — новые ключи
+ * лежали в корневом файле, а работа шла со старыми из копии, и ошибка
+ * выглядела как «Cloudflare не принимает токен».
  *
  * dotenv не перезаписывает уже установленные значения, поэтому порядок задаёт
- * приоритет: настоящее окружение (Amvera) → backend/.env → корневой .env.
+ * приоритет: настоящее окружение (Amvera) → корневой .env → backend/.env.
  */
 function loadEnvFile(file: string): void {
   let parsed: Record<string, string>;
@@ -34,8 +36,8 @@ function loadEnvFile(file: string): void {
   }
 }
 
-loadEnvFile(path.join(backendDir, '.env'));
 loadEnvFile(path.join(repoRoot, '.env'));
+loadEnvFile(path.join(backendDir, '.env'));
 
 /** Пустая строка в .env означает «не задано». */
 const optionalStr = z
@@ -97,6 +99,9 @@ const schema = z.object({
   R2_BUCKET: z.string().default('pai-media'),
   R2_ENDPOINT: optionalStr,
   R2_PUBLIC_URL: optionalStr,
+  // 'auto' годится только для R2; остальные S3 включают регион в подпись
+  R2_REGION: z.string().default('auto'),
+  R2_FORCE_PATH_STYLE: z.coerce.boolean().default(false),
 
   MEDIA_IMAGE_MAX_MB: num(25),
   MEDIA_VIDEO_MAX_MB: num(2048),
@@ -212,6 +217,8 @@ export const env = {
       bucket: e.R2_BUCKET,
       endpoint: e.R2_ENDPOINT ?? (e.R2_ACCOUNT_ID ? `https://${e.R2_ACCOUNT_ID}.r2.cloudflarestorage.com` : undefined),
       publicUrl: e.R2_PUBLIC_URL?.replace(/\/+$/, ''),
+      region: e.R2_REGION,
+      forcePathStyle: e.R2_FORCE_PATH_STYLE,
     },
   },
 
@@ -268,3 +275,14 @@ export const env = {
 };
 
 export type Env = typeof env;
+
+// Адрес медиа подставляется в ссылки, которые открывает браузер. Если он не
+// абсолютный и не от корня, ссылки достраиваются от текущей страницы и ведут
+// в никуда — а заметно это становится только при первой загрузке файла.
+if (env.storage.provider === 'local' && !/^(https?:\/\/|\/)/i.test(env.storage.localPublicUrl)) {
+  console.warn(
+    `[env] STORAGE_LOCAL_PUBLIC_URL=${JSON.stringify(env.storage.localPublicUrl)} — ` +
+      'адрес не абсолютный и не начинается со слэша. Ссылки на медиа будут ' +
+      'достраиваться от адреса открытой страницы. Ожидается https://<домен>/media или /media.',
+  );
+}

@@ -1,7 +1,9 @@
 import { execFile } from 'node:child_process';
+import { createWriteStream } from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { pipeline } from 'node:stream/promises';
 import { promisify } from 'node:util';
 import { env } from '../env.js';
 import { storage } from './storage/index.js';
@@ -127,7 +129,10 @@ export async function processVideo(originalKey: string, sha256: string): Promise
   const localFile = path.join(tmpDir, 'input' + path.extname(originalKey));
 
   try {
-    await fs.writeFile(localFile, await storage.getBuffer(originalKey));
+    // Потоком, а не getBuffer: ролик на 200 МБ иначе целиком оказывается
+    // в памяти контейнера — и это ровно тот размер, ради которого заводится
+    // внешнее хранилище
+    await pipeline(await storage.get(originalKey), createWriteStream(localFile));
 
     const info = await probe(localFile);
 
