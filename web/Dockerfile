@@ -13,6 +13,9 @@ COPY . .
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV NEXT_TELEMETRY_DISABLED=1
+# Явно, хотя next build выставляет это и сам: от NODE_ENV зависит distDir
+# (см. next.config.mjs), а ниже мы копируем из .next по фиксированному пути
+ENV NODE_ENV=production
 RUN npm run build
 
 FROM node:20-alpine AS runtime
