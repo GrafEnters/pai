@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, CheckCircle2, Play, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, CloudUpload, Play, ShieldCheck } from 'lucide-react';
 import { api, errText } from '../api';
 import { humanSize } from '../lib/upload';
 
@@ -10,6 +10,7 @@ type BackupStatus = 'RUNNING' | 'SUCCESS' | 'FAILED' | 'PARTIAL';
 interface BackupRun {
   id: number;
   kind: BackupKind;
+  transport: string;
   status: BackupStatus;
   startedAt: string;
   finishedAt: string | null;
@@ -30,6 +31,13 @@ interface BackupState {
   objects: number;
   bytes: string;
   quota: { total: number; used: number } | null;
+  googleDrive: {
+    configured: boolean;
+    reason: string | null;
+    hoursSinceLastSuccess: number | null;
+    objects: number;
+    bytes: string;
+  };
   runs: BackupRun[];
 }
 
@@ -68,7 +76,8 @@ export function Backups() {
   });
 
   const run = useMutation({
-    mutationFn: async (kind: BackupKind) => (await api.post('/admin/backups/run', { kind })).data,
+    mutationFn: async (v: { kind: BackupKind; transport?: string }) =>
+      (await api.post('/admin/backups/run', v)).data,
     onSuccess: () => {
       setError('');
       void qc.invalidateQueries({ queryKey: ['backups'] });
@@ -77,7 +86,8 @@ export function Backups() {
   });
 
   const verify = useMutation({
-    mutationFn: async () => (await api.post<VerifyReport>('/admin/backups/verify', {})).data,
+    mutationFn: async (transport?: string) =>
+      (await api.post<VerifyReport>('/admin/backups/verify', { transport })).data,
     onSuccess: (r) => {
       setReport(r);
       setError('');
@@ -150,14 +160,22 @@ export function Backups() {
         </div>
       )}
 
+      <GoogleDriveCard
+        state={data.googleDrive}
+        busy={run.isPending || verify.isPending}
+        onBackup={() => run.mutate({ kind: 'FULL', transport: 'google-drive' })}
+        onVerify={() => verify.mutate('google-drive')}
+      />
+
+      <div className="mb-2 text-xs uppercase tracking-wide text-ink-600">Основная копия</div>
       <div className="mb-4 flex flex-wrap gap-2">
         {(['FULL', 'DB', 'CONTENT', 'MEDIA'] as BackupKind[]).map((kind) => (
-          <button key={kind} className="btn-ghost" disabled={run.isPending} onClick={() => run.mutate(kind)}>
+          <button key={kind} className="btn-ghost" disabled={run.isPending} onClick={() => run.mutate({ kind })}>
             <Play size={14} />
             {KIND_LABEL[kind]}
           </button>
         ))}
-        <button className="btn-primary ml-auto" disabled={verify.isPending} onClick={() => verify.mutate()}>
+        <button className="btn-primary ml-auto" disabled={verify.isPending} onClick={() => verify.mutate(undefined)}>
           <ShieldCheck size={15} />
           {verify.isPending ? 'Проверяю…' : 'Проверить целостность'}
         </button>
@@ -213,6 +231,7 @@ export function Backups() {
             <tr>
               <th className="table-th">#</th>
               <th className="table-th">Вид</th>
+              <th className="table-th">Куда</th>
               <th className="table-th">Статус</th>
               <th className="table-th">Начат</th>
               <th className="table-th">Загружено</th>
@@ -227,6 +246,9 @@ export function Backups() {
                 <tr key={r.id}>
                   <td className="table-td text-ink-500">{r.id}</td>
                   <td className="table-td">{KIND_LABEL[r.kind]}</td>
+                  <td className="table-td text-ink-400">
+                    {r.transport === 'google-drive' ? 'Google Drive' : 'диск сервера'}
+                  </td>
                   <td className="table-td">
                     <span className={`badge ${STATUS_CLS[r.status]}`}>{r.status}</span>
                   </td>
@@ -249,7 +271,7 @@ export function Backups() {
                 </tr>
                 {openLog === r.id && (
                   <tr key={`${r.id}-log`}>
-                    <td className="table-td" colSpan={8}>
+                    <td className="table-td" colSpan={9}>
                       {r.error && <div className="mb-2 text-sm text-red-300">{r.error}</div>}
                       <pre className="max-h-64 overflow-auto rounded bg-ink-950 p-2 text-xs text-ink-400">
                         {r.log ?? '—'}
@@ -261,7 +283,7 @@ export function Backups() {
             ))}
             {data.runs.length === 0 && (
               <tr>
-                <td className="table-td text-ink-500" colSpan={8}>
+                <td className="table-td text-ink-500" colSpan={9}>
                   Прогонов ещё не было
                 </td>
               </tr>
@@ -271,6 +293,84 @@ export function Backups() {
       </div>
     </div>
   );
+}
+
+/**
+ * Вторая копия на Google Drive.
+ *
+ * Смысл не в дублировании ради дублирования: копия на постоянном диске
+ * защищает от сбоя приложения, но не от потери самого аккаунта площадки.
+ * Поэтому блок вынесен наверх и всегда показывает, когда копия уходила
+ * последний раз, — это то, ради чего его и просили.
+ */
+function GoogleDriveCard({
+  state,
+  busy,
+  onBackup,
+  onVerify,
+}: {
+  state: BackupState['googleDrive'];
+  busy: boolean;
+  onBackup: () => void;
+  onVerify: () => void;
+}) {
+  const never = state.hoursSinceLastSuccess === null;
+  const old = !never && state.hoursSinceLastSuccess! > 24 * 7;
+
+  return (
+    <div className="card mb-4 p-4">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <CloudUpload size={18} className="text-brand-300" />
+        <span className="font-medium text-white">Копия на Google Drive</span>
+        <span className="text-xs text-ink-500">вторая копия, вне этой площадки</span>
+      </div>
+
+      {!state.configured ? (
+        <div className="rounded-lg bg-amber-500/10 p-3 text-sm text-amber-200">
+          <div className="font-medium">Google Drive пока не подключён</div>
+          <div className="mt-1 text-amber-300/80">{state.reason}</div>
+          <div className="mt-2 text-xs text-amber-300/70">
+            Как подключить — в SETUP.md, раздел «Копия бэкапов вне площадки».
+            Там же три ловушки Google OAuth, из-за которых копия может тихо перестать делаться.
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <Stat
+              label="Последняя копия"
+              value={never ? 'ещё не делали' : `${humanAgo(state.hoursSinceLastSuccess!)} назад`}
+              accent={never || old ? 'text-amber-400' : 'text-green-400'}
+            />
+            <Stat label="Объектов" value={String(state.objects)} />
+            <Stat label="Объём" value={humanSize(state.bytes)} />
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button className="btn-primary" disabled={busy} onClick={onBackup}>
+              <CloudUpload size={15} />
+              Сохранить всё на Google Drive
+            </button>
+            <button className="btn-ghost" disabled={busy || never} onClick={onVerify}>
+              <ShieldCheck size={15} />
+              Проверить копию на Диске
+            </button>
+          </div>
+
+          <p className="mt-2 text-xs text-ink-600">
+            Прогон идёт в фоне, страница обновляется сама. Первая копия долгая —
+            грузится всё; дальше уходит только изменившееся.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+function humanAgo(hours: number): string {
+  if (hours < 1) return `${Math.max(1, Math.round(hours * 60))} мин`;
+  if (hours < 48) return `${Math.round(hours)} ч`;
+  return `${Math.round(hours / 24)} дн`;
 }
 
 /** Путь с предупреждением, если он не абсолютный: почти всегда это опечатка. */

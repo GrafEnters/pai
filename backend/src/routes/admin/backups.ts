@@ -5,6 +5,7 @@ import { env } from '../../env.js';
 import { requireRole } from '../../auth.js';
 import { audit } from '../../audit.js';
 import { backupTransport, hoursSinceLastSuccess, runBackup } from '../../services/backup/index.js';
+import { isGoogleDriveConfigured, type TransportName } from '../../services/backup/transport.js';
 import { NoBackupsError, listManifests, restore } from '../../services/backup/restore.js';
 import { enqueue } from '../../jobs/index.js';
 import { BACKUP_RUN } from '../../jobs/backup.js';
@@ -14,14 +15,20 @@ export async function adminBackupRoutes(app: FastifyInstance) {
 
   // ===== Состояние и последние прогоны =====
   app.get('/admin/backups', onlyAdmin, async () => {
-    const [runs, hours, objectStats] = await Promise.all([
-      prisma.backupRun.findMany({ orderBy: { startedAt: 'desc' }, take: 30 }),
-      hoursSinceLastSuccess(),
+    const statsFor = (transport: string) =>
       prisma.backupObject.aggregate({
         _count: { _all: true },
         _sum: { sizeBytes: true },
-        where: { deletedAt: null },
-      }),
+        where: { transport, deletedAt: null },
+      });
+
+    const [runs, hours, objectStats, driveHours, driveStats, drive] = await Promise.all([
+      prisma.backupRun.findMany({ orderBy: { startedAt: 'desc' }, take: 30 }),
+      hoursSinceLastSuccess(backupTransport.name),
+      statsFor(backupTransport.name),
+      hoursSinceLastSuccess('google-drive'),
+      statsFor('google-drive'),
+      isGoogleDriveConfigured(),
     ]);
 
     let quota: { total: number; used: number } | null = null;
@@ -43,6 +50,15 @@ export async function adminBackupRoutes(app: FastifyInstance) {
       objects: objectStats._count._all,
       bytes: (objectStats._sum.sizeBytes ?? BigInt(0)).toString(),
       quota,
+      // Вторая копия — на случай потери самой площадки. Отдельный статус,
+      // потому что «когда последний раз уходило на Диск» — отдельный вопрос
+      googleDrive: {
+        configured: drive.ok,
+        reason: drive.reason ?? null,
+        hoursSinceLastSuccess: driveHours,
+        objects: driveStats._count._all,
+        bytes: (driveStats._sum.sizeBytes ?? BigInt(0)).toString(),
+      },
       runs: runs.map((r) => ({ ...r, bytesUploaded: r.bytesUploaded.toString() })),
     };
   });
@@ -57,32 +73,51 @@ export async function adminBackupRoutes(app: FastifyInstance) {
   // ===== Запустить сейчас =====
   app.post('/admin/backups/run', onlyAdmin, async (req, reply) => {
     const body = z
-      .object({ kind: z.enum(['DB', 'CONTENT', 'MEDIA', 'FULL']).default('FULL'), sync: z.boolean().default(false) })
+      .object({
+        kind: z.enum(['DB', 'CONTENT', 'MEDIA', 'FULL']).default('FULL'),
+        transport: z.enum(['local-drive', 'google-drive']).optional(),
+        sync: z.boolean().default(false),
+      })
       .safeParse(req.body ?? {});
     if (!body.success) return reply.code(400).send({ error: 'Некорректные данные' });
 
-    await audit(req, 'backup.run', 'BackupRun', null, { kind: body.data.kind });
+    const transport = body.data.transport as TransportName | undefined;
+
+    if (transport === 'google-drive') {
+      const drive = await isGoogleDriveConfigured();
+      if (!drive.ok) return reply.code(400).send({ error: `Google Drive не настроен. ${drive.reason}` });
+    }
+
+    await audit(req, 'backup.run', 'BackupRun', null, { kind: body.data.kind, transport: transport ?? 'основное' });
 
     // Синхронный режим нужен скриптам и проверке вручную; из UI — в очередь,
     // чтобы кнопка не висела пятнадцать минут
     if (body.data.sync) {
-      const result = await runBackup(body.data.kind, (m) => req.log.info(m));
-      return result;
+      return runBackup(body.data.kind, (m) => req.log.info(m), transport);
     }
-    await enqueue(BACKUP_RUN, { kind: body.data.kind });
-    return { queued: true, kind: body.data.kind };
+    await enqueue(BACKUP_RUN, { kind: body.data.kind, transport });
+    return { queued: true, kind: body.data.kind, transport: transport ?? backupTransport.name };
   });
 
   // ===== Доступные точки восстановления =====
-  app.get('/admin/backups/manifests', onlyAdmin, async () => listManifests());
+  app.get('/admin/backups/manifests', onlyAdmin, async (req) => {
+    const q = z.object({ transport: z.enum(['local-drive', 'google-drive']).optional() }).parse(req.query);
+    return listManifests(q.transport);
+  });
 
   // ===== Проверка целостности (ничего не меняет) =====
   app.post('/admin/backups/verify', onlyAdmin, async (req, reply) => {
-    const body = z.object({ date: z.string().optional() }).safeParse(req.body ?? {});
+    const body = z
+      .object({ date: z.string().optional(), transport: z.enum(['local-drive', 'google-drive']).optional() })
+      .safeParse(req.body ?? {});
     let report;
     try {
       report = await restore(
-        { date: body.success ? body.data.date : undefined, target: 'check' },
+        {
+          date: body.success ? body.data.date : undefined,
+          target: 'check',
+          transport: body.success ? body.data.transport : undefined,
+        },
         (m) => req.log.info(m),
       );
     } catch (e) {

@@ -427,6 +427,9 @@ enum BackupStatus {
 model BackupRun {
   id            Int          @id @default(autoincrement())
   kind          BackupKind
+  /// Куда делали копию: local-drive | google-drive. Копий может быть несколько,
+  /// и «когда последний раз уходило на Диск» — отдельный вопрос от «когда локально»
+  transport     String       @default("local-drive")
   status        BackupStatus @default(RUNNING)
   startedAt     DateTime     @default(now())
   finishedAt    DateTime?
@@ -442,10 +445,13 @@ model BackupRun {
   @@index([startedAt])
 }
 
-/// Что и с каким хешем уже лежит на Drive — основа инкрементальности
+/// Что и с каким хешем уже лежит в хранилище копий — основа инкрементальности.
+/// Учёт раздельный по транспортам: у локальной копии и у копии на Диске
+/// свои идентификаторы файлов и свой набор уже загруженного.
 model BackupObject {
   id          Int       @id @default(autoincrement())
-  key         String    @unique // media/original/ab12.jpg | content/fb-launch/guide.json
+  transport   String    @default("local-drive")
+  key         String // media/original/ab12.jpg | content/fb-launch/guide.json
   sha256      String
   sizeBytes   BigInt
   driveFileId String
@@ -455,6 +461,7 @@ model BackupObject {
   /// по ретеншену BACKUP_TOMBSTONE_DAYS — защита от «админ снёс, бэкап повторил»
   deletedAt   DateTime?
 
+  @@unique([transport, key])
   @@index([syncedAt])
   @@index([deletedAt])
 }

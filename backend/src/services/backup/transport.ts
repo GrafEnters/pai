@@ -31,5 +31,30 @@ export interface BackupTransport {
   quota(): Promise<{ total: number; used: number } | null>;
 }
 
+export type TransportName = 'local-drive' | 'google-drive';
+
+/** Основное хранилище копий — то, куда бэкап идёт по расписанию. */
 export const backupTransport: BackupTransport =
   env.backup.provider === 'google-drive' ? googleDriveTransport : localDriveTransport;
+
+export function getTransport(name?: TransportName): BackupTransport {
+  if (name === 'google-drive') return googleDriveTransport;
+  if (name === 'local-drive') return localDriveTransport;
+  return backupTransport;
+}
+
+/**
+ * Настроен ли Google Drive как дополнительная копия.
+ *
+ * Токен читаем «сначала БД, потом .env»: после `npm run drive:auth` он лежит
+ * в настройках, и требовать дублировать его в переменные окружения незачем.
+ */
+export async function isGoogleDriveConfigured(): Promise<{ ok: boolean; reason?: string }> {
+  if (!env.google.clientId || !env.google.clientSecret) {
+    return { ok: false, reason: 'Не заданы GOOGLE_OAUTH_CLIENT_ID и GOOGLE_OAUTH_CLIENT_SECRET' };
+  }
+  const { currentRefreshToken } = await import('./drive-auth.js');
+  const token = await currentRefreshToken();
+  if (!token) return { ok: false, reason: 'Нет refresh-токена — получите его командой npm run drive:auth' };
+  return { ok: true };
+}

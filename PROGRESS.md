@@ -429,7 +429,7 @@ cd /tmp/clean && docker build -t pai-clean .
 | Что | Файл | Чем проверять после подключения |
 |---|---|---|
 | Cloudflare R2 | `services/storage/r2.provider.ts` | Загрузить картинку в админке, `curl -I` на её адрес |
-| Google Drive | `services/backup/google-drive.provider.ts`, `drive-auth.ts` | `npm run backup -- --kind=DB`, затем `npm run restore -- --list` |
+| Google Drive как **вторая копия** | `services/backup/google-drive.provider.ts`, `drive-auth.ts` | Кнопка «Сохранить всё на Google Drive», затем обязательно «Проверить копию на Диске» — должно быть 0 битых |
 | Скрипт авторизации Drive | `scripts/driveAuth.ts` | `npm run drive:auth` — должен вернуть `refresh_token` |
 | Telegram-уведомления | `services/notify/telegram.provider.ts` | Погасить контейнер backend, ждать алерт |
 | Telegram-бот | `bot.ts` | `/start` создаёт пользователя с ролью `NONE`, `/login` присылает ссылку |

@@ -8,6 +8,8 @@ export const BACKUP_WATCHDOG = 'backup.watchdog';
 
 export interface BackupJob {
   kind: 'DB' | 'CONTENT' | 'MEDIA' | 'FULL';
+  /** Не задано — основное хранилище из BACKUP_PROVIDER. */
+  transport?: 'local-drive' | 'google-drive';
 }
 
 /**
@@ -15,8 +17,8 @@ export interface BackupJob {
  * дамп БД ночью, полная сверка хешей по воскресеньям.
  */
 export async function registerBackupJobs(log: (m: string) => void = console.log): Promise<void> {
-  await registerJob<BackupJob>(BACKUP_RUN, async ({ kind }) => {
-    await runBackup(kind, log);
+  await registerJob<BackupJob>(BACKUP_RUN, async ({ kind, transport }) => {
+    await runBackup(kind, log, transport);
   });
 
   // Сторож: бэкап, который встал и никто не заметил, — худший исход (§9.0)

@@ -363,16 +363,29 @@ cd /app/backend && node dist/scripts/restore.js --latest --target=check
 
 ---
 
-## Приложение А. Копия бэкапов вне площадки
+## Вторая копия: Google Drive
 
-Бэкапы на `/data` защищают от сбоя приложения, но не от потери аккаунта Amvera.
-Если это важно — подключите Google Drive вторым контуром.
+Копия на `/data` защищает от сбоя приложения, но **не от потери самого аккаунта
+Amvera**. Вторая копия лежит вне площадки, и это принципиально другой класс защиты.
 
-**Только здесь становятся актуальны три ловушки Google OAuth.**
-При `BACKUP_PROVIDER=local-drive` их можно игнорировать.
+Обе копии работают **одновременно и независимо**: локальная идёт по расписанию,
+на Диск уходит по кнопке **«Сохранить всё на Google Drive»** в разделе «Бэкапы».
+У каждой свой учёт загруженного, поэтому на Диск каждый раз уезжает только
+изменившееся, а не всё заново.
 
-<details>
-<summary><b>Развернуть: Google Drive и три его ловушки</b></summary>
+`BACKUP_PROVIDER` при этом остаётся `local-drive` — менять его не нужно.
+
+После подключения в разделе «Бэкапы» появляется блок с ответом на главный вопрос:
+**когда копия на Диске делалась последний раз**.
+
+### ⚠️ Первую копию обязательно проверьте
+
+Код работы с Google Drive написан, но **вживую ни разу не запускался** — у автора
+не было аккаунта. Поэтому после первого прогона нажмите **«Проверить копию на Диске»**:
+она скачает каждый объект обратно и сверит хеши. Отчёт должен показать
+0 битых и 0 отсутствующих.
+
+Пока эта проверка не прошла — считайте, что второй копии нет.
 
 ### ⚠️ A. Статус приложения — «In production», а не «Testing»
 
@@ -408,8 +421,9 @@ access-токен, а refresh — нет, и **это не видно из от�
 4. Credentials → OAuth client ID → тип **Desktop app**.
 5. Локально: `cd backend && npm run drive:auth`.
 6. В переменные проекта секретами: `GOOGLE_OAUTH_CLIENT_ID`,
-   `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`;
-   переменной: `BACKUP_PROVIDER=google-drive`.
+   `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`.
+   `BACKUP_PROVIDER` **не трогайте** — он остаётся `local-drive`,
+   Диск работает как вторая копия параллельно.
 
 **Если отвалилось:** в логе прогона `invalid_grant` — Google отозвал доступ.
 Причины: смена пароля аккаунта, ручной отзыв в
@@ -417,7 +431,14 @@ access-токен, а refresh — нет, и **это не видно из от�
 OAuth-клиента, **или приложение осталось в статусе Testing**.
 Починка: повторить `npm run drive:auth`, обновить секрет, перезапустить.
 
-</details>
+### Восстановление из копии на Диске
+
+```bash
+node dist/scripts/restore.js --list --transport=google-drive
+node dist/scripts/restore.js --latest --target=check --transport=google-drive
+```
+
+Полное восстановление — так же, с `--target=full --yes`.
 
 ## Приложение Б. CDN и раздача медиа с edge
 
@@ -468,7 +489,8 @@ OAuth-клиента, **или приложение осталось в стат
 | Что | Переменная | Локально | Amvera | Внешний провайдер |
 |---|---|---|---|---|
 | Хранилище медиа | `STORAGE_PROVIDER` | `local` | `local` (`/data/storage`) | `r2` |
-| Бэкап | `BACKUP_PROVIDER` | `local-drive` | `local-drive` (`/data/backups`) | `google-drive` |
+| Бэкап | `BACKUP_PROVIDER` | `local-drive` | `local-drive` (`/data/backups`) | — |
+| Вторая копия | `GOOGLE_*` | нет | Google Drive по кнопке | параллельно основной |
 | Уведомления | `TELEGRAM_PROVIDER` | `console` | `console` | `telegram` |
 | Сброс кэша CDN | `CDN_PROVIDER` | `noop` | `noop` | `cloudflare` |
 

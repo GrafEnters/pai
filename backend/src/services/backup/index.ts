@@ -8,7 +8,7 @@ import { safeAlert } from '../notify/index.js';
 import { asDoc } from '../../content/schema.js';
 import { buildRenderContext } from '../guides.js';
 import { toMarkdown } from '../../content/render.js';
-import { backupTransport } from './transport.js';
+import { backupTransport, getTransport, type BackupTransport, type TransportName } from './transport.js';
 import { dumpDatabase } from './db-dump.js';
 
 export const MANIFEST_LATEST = 'manifest-latest.json';
@@ -75,8 +75,14 @@ export interface BackupResult {
 export async function runBackup(
   kind: BackupKind = 'FULL',
   log: (m: string) => void = console.log,
+  transportName?: TransportName,
 ): Promise<BackupResult> {
-  const run = await prisma.backupRun.create({ data: { kind, status: 'RUNNING' } });
+  // Копий может быть несколько: локальная по расписанию и копия на Диске
+  // по кнопке. У каждой свой учёт загруженного, поэтому имя хранилища
+  // участвует и в BackupRun, и в ключе BackupObject.
+  const transport: BackupTransport = getTransport(transportName);
+  const tname = transport.name;
+  const run = await prisma.backupRun.create({ data: { kind, status: 'RUNNING', transport: tname } });
   const errors: string[] = [];
   const logLines: string[] = [];
   const say = (m: string) => {
@@ -84,7 +90,7 @@ export async function runBackup(
     logLines.push(m);
   };
 
-  say(`[backup] прогон #${run.id}, вид ${kind}, транспорт ${backupTransport.name}`);
+  say(`[backup] прогон #${run.id}, вид ${kind}, хранилище ${tname}`);
 
   let uploaded = 0;
   let skipped = 0;
@@ -94,7 +100,7 @@ export async function runBackup(
   const manifestObjects: ManifestEntry[] = [];
 
   try {
-    await warnIfLowQuota(say);
+    await warnIfLowQuota(transport, say);
 
     const candidates: Candidate[] = [];
     if (kind === 'FULL' || kind === 'CONTENT') candidates.push(...(await contentCandidates()));
@@ -104,7 +110,9 @@ export async function runBackup(
 
     for (const candidate of candidates) {
       try {
-        const existing = await prisma.backupObject.findUnique({ where: { key: candidate.key } });
+        const existing = await prisma.backupObject.findUnique({
+          where: { transport_key: { transport: tname, key: candidate.key } },
+        });
 
         // Для медиа sha256 уже лежит в БД — читать файл ради сверки незачем
         if (candidate.knownSha && existing && existing.sha256 === candidate.knownSha && !existing.deletedAt) {
@@ -127,7 +135,7 @@ export async function runBackup(
           continue;
         }
 
-        const { fileId, md5 } = await backupTransport.put(candidate.key, content, candidate.mime, {
+        const { fileId, md5 } = await transport.put(candidate.key, content, candidate.mime, {
           sha256: hash,
           existingFileId: existing?.driveFileId ?? null,
         });
@@ -141,8 +149,9 @@ export async function runBackup(
         }
 
         await prisma.backupObject.upsert({
-          where: { key: candidate.key },
+          where: { transport_key: { transport: tname, key: candidate.key } },
           create: {
+            transport: tname,
             key: candidate.key,
             sha256: hash,
             sizeBytes: BigInt(content.length),
@@ -175,11 +184,11 @@ export async function runBackup(
       const dump = await dumpDatabase(say);
       const key = `db/${today()}/dump.${dump.format === 'pgdump' ? 'sql' : 'ndjson'}.gz`;
       const hash = sha256(dump.content);
-      const { fileId, md5 } = await backupTransport.put(key, dump.content, 'application/gzip', { sha256: hash });
+      const { fileId, md5 } = await transport.put(key, dump.content, 'application/gzip', { sha256: hash });
 
       await prisma.backupObject.upsert({
-        where: { key },
-        create: { key, sha256: hash, sizeBytes: BigInt(dump.content.length), driveFileId: fileId, driveMd5: md5 },
+        where: { transport_key: { transport: tname, key } },
+        create: { transport: tname, key, sha256: hash, sizeBytes: BigInt(dump.content.length), driveFileId: fileId, driveMd5: md5 },
         update: { sha256: hash, sizeBytes: BigInt(dump.content.length), driveFileId: fileId, driveMd5: md5, syncedAt: new Date(), deletedAt: null },
       });
 
@@ -192,11 +201,11 @@ export async function runBackup(
 
     // ===== Пропавшие объекты =====
     if (kind === 'FULL') {
-      deleted = await markMissing(new Set(manifestObjects.map((o) => o.key)), say);
+      deleted = await markMissing(tname, new Set(manifestObjects.map((o) => o.key)), say);
     }
 
     // ===== Ретеншен =====
-    await applyRetention(say);
+    await applyRetention(transport, tname, say);
 
     // ===== Манифест =====
     const counts = await countEntities();
@@ -206,7 +215,7 @@ export async function runBackup(
       kind,
       startedAt: run.startedAt.toISOString(),
       finishedAt: new Date().toISOString(),
-      transport: backupTransport.name,
+      transport: tname,
       schemaVersion: SCHEMA_VERSION,
       db: dbEntry,
       counts,
@@ -215,9 +224,9 @@ export async function runBackup(
     const manifestBuf = Buffer.from(JSON.stringify(manifest, null, 2), 'utf8');
     manifestKey = `manifests/${today()}/manifest-${run.id}.json`;
 
-    await backupTransport.put(manifestKey, manifestBuf, 'application/json', { sha256: sha256(manifestBuf) });
+    await transport.put(manifestKey, manifestBuf, 'application/json', { sha256: sha256(manifestBuf) });
     // Указатель на последний успешный прогон (§9.2)
-    await backupTransport.put(MANIFEST_LATEST, manifestBuf, 'application/json', { sha256: sha256(manifestBuf) });
+    await transport.put(MANIFEST_LATEST, manifestBuf, 'application/json', { sha256: sha256(manifestBuf) });
 
     const status = errors.length ? 'PARTIAL' : 'SUCCESS';
     await prisma.backupRun.update({
@@ -233,7 +242,7 @@ export async function runBackup(
         log: logLines.join('\n').slice(0, 20000),
       },
     });
-    if (status === 'SUCCESS') await setSetting(SETTING_KEYS.backupLastSuccessAt, new Date().toISOString());
+    if (status === 'SUCCESS') await setSetting(`${SETTING_KEYS.backupLastSuccessAt}.${tname}`, new Date().toISOString());
 
     say(
       `[backup] готово: загружено ${uploaded}, пропущено без изменений ${skipped}, ` +
@@ -398,9 +407,13 @@ async function mediaCandidates(): Promise<Candidate[]> {
  * Объект пропал из системы — помечаем, но не удаляем сразу.
  * Защита от «админ случайно снёс гайд, а бэкап послушно повторил удаление» (§9.3, п.5).
  */
-async function markMissing(presentKeys: Set<string>, say: (m: string) => void): Promise<number> {
+async function markMissing(
+  transportName: string,
+  presentKeys: Set<string>,
+  say: (m: string) => void,
+): Promise<number> {
   const known = await prisma.backupObject.findMany({
-    where: { deletedAt: null },
+    where: { transport: transportName, deletedAt: null },
     select: { id: true, key: true },
   });
   const missing = known.filter((o) => !presentKeys.has(o.key) && !o.key.startsWith('db/') && !o.key.startsWith('manifests/'));
@@ -418,10 +431,14 @@ async function markMissing(presentKeys: Set<string>, say: (m: string) => void): 
  * Ретеншен: дампы БД по схеме 7 дней × 4 недели × 6 месяцев,
  * помеченные объекты — через BACKUP_TOMBSTONE_DAYS.
  */
-async function applyRetention(say: (m: string) => void): Promise<void> {
+async function applyRetention(
+  transport: BackupTransport,
+  transportName: string,
+  say: (m: string) => void,
+): Promise<void> {
   // --- дампы БД ---
   const dumps = await prisma.backupObject.findMany({
-    where: { key: { startsWith: 'db/' } },
+    where: { transport: transportName, key: { startsWith: 'db/' } },
     orderBy: { key: 'desc' },
   });
 
@@ -448,7 +465,7 @@ async function applyRetention(say: (m: string) => void): Promise<void> {
   const toDrop = dumps.filter((d) => !keep.has(d.key));
   for (const dump of toDrop) {
     try {
-      await backupTransport.delete(dump.driveFileId, dump.key);
+      await transport.delete(dump.driveFileId, dump.key);
       await prisma.backupObject.delete({ where: { id: dump.id } });
     } catch (e) {
       say(`[backup] не удалось удалить старый дамп ${dump.key}: ${String(e)}`);
@@ -458,10 +475,12 @@ async function applyRetention(say: (m: string) => void): Promise<void> {
 
   // --- помеченные объекты ---
   const cutoff = new Date(Date.now() - env.backup.tombstoneDays * 86400_000);
-  const expired = await prisma.backupObject.findMany({ where: { deletedAt: { lt: cutoff } } });
+  const expired = await prisma.backupObject.findMany({
+    where: { transport: transportName, deletedAt: { lt: cutoff } },
+  });
   for (const object of expired) {
     try {
-      await backupTransport.delete(object.driveFileId, object.key);
+      await transport.delete(object.driveFileId, object.key);
       await prisma.backupObject.delete({ where: { id: object.id } });
     } catch (e) {
       say(`[backup] не удалось вычистить ${object.key}: ${String(e)}`);
@@ -481,9 +500,9 @@ async function countEntities() {
 }
 
 /** Алерт при остатке места меньше 15% (§9.6). */
-async function warnIfLowQuota(say: (m: string) => void): Promise<void> {
+async function warnIfLowQuota(transport: BackupTransport, say: (m: string) => void): Promise<void> {
   try {
-    const quota = await backupTransport.quota();
+    const quota = await transport.quota();
     if (!quota || !quota.total) return;
     const freeRatio = (quota.total - quota.used) / quota.total;
     say(`[backup] место: занято ${(quota.used / 1024 ** 3).toFixed(1)} ГБ из ${(quota.total / 1024 ** 3).toFixed(1)} ГБ`);
@@ -499,9 +518,9 @@ async function warnIfLowQuota(say: (m: string) => void): Promise<void> {
 }
 
 /** Сколько часов прошло с последнего успешного бэкапа — для /health и баннера в админке. */
-export async function hoursSinceLastSuccess(): Promise<number | null> {
+export async function hoursSinceLastSuccess(transportName?: string): Promise<number | null> {
   const last = await prisma.backupRun.findFirst({
-    where: { status: 'SUCCESS' },
+    where: { status: 'SUCCESS', ...(transportName ? { transport: transportName } : {}) },
     orderBy: { finishedAt: 'desc' },
     select: { finishedAt: true },
   });

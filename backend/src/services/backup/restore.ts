@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { prisma } from '../../db.js';
 import { storage } from '../storage/index.js';
 import { asDoc, collectMediaIds } from '../../content/schema.js';
-import { backupTransport } from './transport.js';
+import { backupTransport, getTransport, type BackupTransport, type TransportName } from './transport.js';
 import { env } from '../../env.js';
 import { MANIFEST_LATEST, SCHEMA_VERSION, type Manifest } from './index.js';
 import { restoreDatabase } from './db-dump.js';
@@ -16,6 +16,8 @@ export interface RestoreOptions {
    * full  — развернуть БД из дампа И восстановить медиа (РАЗРУШИТЕЛЬНО).
    */
   target: 'check' | 'media' | 'full';
+  /** Из какой копии читать: локальной или с Google Drive. */
+  transport?: TransportName;
 }
 
 export interface RestoreReport {
@@ -29,14 +31,17 @@ export interface RestoreReport {
 }
 
 /** Куда именно смотрит текущий транспорт — нужно в сообщениях об ошибках. */
-function describeTarget(): string {
-  return backupTransport.name === 'local-drive'
+function describeTarget(t: BackupTransport): string {
+  return t.name === 'local-drive'
     ? `${env.backup.localDir}/${env.backup.rootFolderName}`
     : `Google Drive → ${env.backup.rootFolderName}`;
 }
 
 /** Список доступных прогонов — `npm run restore -- --list`. */
-export async function listManifests(): Promise<Array<{ key: string; runId?: number; finishedAt?: string }>> {
+export async function listManifests(
+  transportName?: TransportName,
+): Promise<Array<{ key: string; runId?: number; finishedAt?: string }>> {
+  const backupTransport = getTransport(transportName);
   const objects = await backupTransport.list('manifests');
   const out: Array<{ key: string; runId?: number; finishedAt?: string }> = [];
 
@@ -65,13 +70,13 @@ export class NoBackupsError extends Error {
   }
 }
 
-async function loadManifest(date?: string): Promise<Manifest> {
+async function loadManifest(backupTransport: BackupTransport, date?: string): Promise<Manifest> {
   if (!date) {
     let buf: Buffer;
     try {
       buf = await backupTransport.get(MANIFEST_LATEST);
     } catch {
-      throw new NoBackupsError(`${describeTarget()}/${MANIFEST_LATEST}`);
+      throw new NoBackupsError(`${describeTarget(backupTransport)}/${MANIFEST_LATEST}`);
     }
     return JSON.parse(buf.toString('utf8')) as Manifest;
   }
@@ -88,7 +93,8 @@ async function loadManifest(date?: string): Promise<Manifest> {
  */
 export async function restore(opts: RestoreOptions, log: (m: string) => void = console.log): Promise<RestoreReport> {
   const startedAt = Date.now();
-  const manifest = await loadManifest(opts.date);
+  const backupTransport = getTransport(opts.transport);
+  const manifest = await loadManifest(backupTransport, opts.date);
 
   log(`[restore] манифест прогона #${manifest.runId} от ${manifest.finishedAt} (${manifest.transport})`);
   log(`[restore] в бэкапе: гайдов ${manifest.counts.guides}, медиа ${manifest.counts.media}, событий ${manifest.counts.events}`);

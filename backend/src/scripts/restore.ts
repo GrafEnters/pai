@@ -5,6 +5,8 @@
  *   npm run restore -- --latest --target=check      проверить целостность (ничего не меняет)
  *   npm run restore -- --date=2026-07-30 --target=media   вернуть недостающие медиафайлы
  *   npm run restore -- --latest --target=full --yes  РАЗВЕРНУТЬ БД И МЕДИА (разрушительно)
+ *
+ * Из какой копии читать: --transport=local-drive (по умолчанию) | google-drive
  */
 import { prisma } from '../db.js';
 import { listManifests, restore } from '../services/backup/restore.js';
@@ -13,8 +15,10 @@ const args = process.argv.slice(2);
 const has = (flag: string) => args.includes(flag);
 const value = (name: string) => args.find((a) => a.startsWith(`--${name}=`))?.split('=').slice(1).join('=');
 
+const transport = value('transport') as 'local-drive' | 'google-drive' | undefined;
+
 if (has('--list')) {
-  const manifests = await listManifests();
+  const manifests = await listManifests(transport);
   if (!manifests.length) {
     console.log('Бэкапов не найдено. Сделайте первый: npm run backup');
   } else {
@@ -44,7 +48,7 @@ if (target === 'full' && !has('--yes')) {
 }
 
 const date = value('date');
-const report = await restore({ date, target });
+const report = await restore({ date, target, transport });
 
 await prisma.$disconnect();
 
