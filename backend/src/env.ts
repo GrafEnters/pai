@@ -135,6 +135,14 @@ const schema = z.object({
   GOOGLE_OAUTH_CLIENT_SECRET: optionalStr,
   GOOGLE_REFRESH_TOKEN: optionalStr,
   GOOGLE_OAUTH_REDIRECT_URI: z.string().default('http://localhost:53682/oauth2callback'),
+  /**
+   * Хост Drive API. Меняется переменной, потому что дело не в коде: с площадки
+   * может не быть маршрута до той подсети, в которую резолвится хост по
+   * умолчанию, — при том что соседние хосты Google отвечают. Смена значения
+   * не требует пересборки, а /admin/system/netcheck?hosts=… показывает,
+   * какой хост доступен (см. SETUP.md).
+   */
+  GOOGLE_API_HOST: z.string().default('www.googleapis.com'),
 
   ANALYTICS_READ_SCROLL_PCT: num(70),
   ANALYTICS_READ_TIME_RATIO: num(0.4),
@@ -263,6 +271,7 @@ export const env = {
     clientSecret: e.GOOGLE_OAUTH_CLIENT_SECRET,
     refreshToken: e.GOOGLE_REFRESH_TOKEN,
     redirectUri: e.GOOGLE_OAUTH_REDIRECT_URI,
+    apiHost: e.GOOGLE_API_HOST,
   },
 
   analytics: {

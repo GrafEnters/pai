@@ -160,11 +160,18 @@ async function egressIp(): Promise<string | null> {
   }
 }
 
-export async function netcheck(): Promise<NetCheckReport> {
+/**
+ * @param extraHosts хосты сверх обычного набора. Нужны, чтобы искать замену
+ *   недоступному хосту Drive API, не пересобирая образ ради каждой догадки.
+ */
+export async function netcheck(extraHosts: string[] = []): Promise<NetCheckReport> {
   const targets: { host: string; role: string }[] = [
-    { host: 'www.googleapis.com', role: 'Drive API — на нём падает бэкап' },
-    { host: 'oauth2.googleapis.com', role: 'обновление OAuth-токена — оно проходило' },
+    { host: env.google.apiHost, role: 'Drive API — то, что настроено сейчас' },
+    { host: 'drive.googleapis.com', role: 'Drive API — кандидат на замену' },
+    { host: 'content.googleapis.com', role: 'Drive API — кандидат на замену' },
+    { host: 'oauth2.googleapis.com', role: 'обновление OAuth-токена — оно проходит' },
     { host: 'storage.googleapis.com', role: 'соседний хост Google — контроль подсети' },
+    ...extraHosts.map((host) => ({ host, role: 'запрошен вручную' })),
   ];
 
   // Хранилище медиа — заведомо рабочее направление. Если и оно молчит,
@@ -172,11 +179,14 @@ export async function netcheck(): Promise<NetCheckReport> {
   const r2Host = env.storage.r2.endpoint ? safeHost(env.storage.r2.endpoint) : null;
   if (r2Host) targets.push({ host: r2Host, role: 'R2 — контроль, это направление работает' });
 
+  // Один и тот же хост мог прийти и из настроек, и из запроса
+  const unique = targets.filter((t, i) => t.host && targets.findIndex((o) => o.host === t.host) === i);
+
   const [ip, hosts] = await Promise.all([
     egressIp(),
     (async () => {
       const out: HostReport[] = [];
-      for (const target of targets) out.push(await checkHost(target.host, target.role));
+      for (const target of unique) out.push(await checkHost(target.host, target.role));
       return out;
     })(),
   ]);

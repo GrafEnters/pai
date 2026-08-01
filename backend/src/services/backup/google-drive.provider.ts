@@ -14,8 +14,19 @@ import { TransportUnreachableError, type BackupTransport, type RemoteObject } fr
  * приложению попросту не видна (§9.6).
  */
 
-const API = 'https://www.googleapis.com/drive/v3';
-const UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3';
+/**
+ * Хост берётся из настроек, а не зашит.
+ *
+ * С Amvera до подсети, в которую резолвится www.googleapis.com, маршрута нет:
+ * все восемь его адресов лежат в 172.217.112.0/21 и молчат на connect, тогда
+ * как oauth2.googleapis.com и storage.googleapis.com с той же площадки
+ * отвечают за 20 мс. У Drive API есть равнозначные хосты, и если хоть один
+ * из них попадает в живую подсеть, переезд на него — это смена переменной
+ * окружения без пересборки. Какой именно доступен, показывает
+ * /admin/system/netcheck?hosts=…
+ */
+const API = `https://${env.google.apiHost}/drive/v3`;
+const UPLOAD_API = `https://${env.google.apiHost}/upload/drive/v3`;
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
 const RESUMABLE_THRESHOLD = 5 * 1024 * 1024;
 

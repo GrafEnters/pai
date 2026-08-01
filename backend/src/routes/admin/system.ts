@@ -97,7 +97,18 @@ export async function adminSystemRoutes(app: FastifyInstance) {
   // падает на сетевой ошибке, которую снаружи не воспроизвести: с локальной
   // машины те же адреса открываются. Поэтому проверка живёт здесь.
   app.get('/admin/system/netcheck', onlyAdmin, async (req) => {
-    const report = await netcheck();
+    // ?hosts=drive.googleapis.com,content.googleapis.com — проверить догадку,
+    // не пересобирая образ ради каждой
+    const q = z.object({ hosts: z.string().optional() }).parse(req.query);
+    const extra = (q.hosts ?? '')
+      .split(',')
+      .map((h) => h.trim())
+      .filter(Boolean)
+      // Только имя хоста: ни схемы, ни пути, ни порта — проверка ходит по :443
+      .filter((h) => /^[a-z0-9.-]+$/i.test(h))
+      .slice(0, 5);
+
+    const report = await netcheck(extra);
     // Дублируем в лог: результат нужен и в панели Amvera, рядом с ошибками прогона
     req.log.info(`[netcheck] Node ${report.runtime.node}, undici ${report.runtime.undici}`);
     req.log.info(`[netcheck] внешний адрес: ${report.egressIp ?? 'не определился'}`);
