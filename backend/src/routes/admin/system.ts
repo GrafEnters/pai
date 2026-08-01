@@ -4,6 +4,7 @@ import { prisma } from '../../db.js';
 import { requireRole } from '../../auth.js';
 import { audit } from '../../audit.js';
 import { getAllSettings, setSetting } from '../../settings.js';
+import { netcheck } from '../../services/netcheck.js';
 
 /** Ключи настроек, которые можно менять из админки. Остальное — только через .env. */
 const EDITABLE_SETTINGS = new Set([
@@ -88,5 +89,19 @@ export async function adminSystemRoutes(app: FastifyInstance) {
     }
     await audit(req, 'settings.update', 'Setting', null, { keys: applied });
     return { ok: true, applied };
+  });
+
+  // ===== Проверка исходящей связи =====
+  //
+  // Консоли у Amvera нет, выполнить curl изнутри контейнера негде — а бэкап
+  // падает на сетевой ошибке, которую снаружи не воспроизвести: с локальной
+  // машины те же адреса открываются. Поэтому проверка живёт здесь.
+  app.get('/admin/system/netcheck', onlyAdmin, async (req) => {
+    const report = await netcheck();
+    // Дублируем в лог: результат нужен и в панели Amvera, рядом с ошибками прогона
+    req.log.info(`[netcheck] Node ${report.runtime.node}, undici ${report.runtime.undici}`);
+    req.log.info(`[netcheck] внешний адрес: ${report.egressIp ?? 'не определился'}`);
+    for (const line of report.summary) req.log.info(`[netcheck] ${line}`);
+    return report;
   });
 }

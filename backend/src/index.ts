@@ -30,9 +30,27 @@ import { adminSystemRoutes } from './routes/admin/system.js';
 
 const app = Fastify({
   logger: { level: env.logLevel },
+  // Свои две строки Fastify пишет как «incoming request» / «request completed»,
+  // а метод, путь, статус и время кладёт в отдельные поля JSON. Панель Amvera
+  // показывает только msg — и лог превращается в ленту одинаковых строк, по
+  // которой не опознать ни одного запроса. Пишем сами: одна строка, всё в msg
+  disableRequestLogging: true,
   // За Caddy и Cloudflare: доверяем X-Forwarded-* для корректного req.ip
   trustProxy: true,
   bodyLimit: 2 * 1024 * 1024,
+});
+
+/**
+ * Пути, которые в info-логе не нужны: платформа дёргает их постоянно, а сказать
+ * им нечего. Не выключены совсем, а понижены до debug — при LOG_LEVEL=debug
+ * видно и их.
+ */
+const QUIET_PATHS = new Set(['/health']);
+
+app.addHook('onResponse', async (req, reply) => {
+  const line = `${req.method} ${req.url} → ${reply.statusCode} за ${reply.elapsedTime.toFixed(0)} мс`;
+  if (QUIET_PATHS.has(req.url)) req.log.debug(line);
+  else req.log.info(line);
 });
 
 // ===== Плагины =====
@@ -155,6 +173,13 @@ try {
   await app.listen({ port: env.port, host: env.host });
   app.log.info(`[api] слушаю http://localhost:${env.port}`);
   app.log.info(`[storage] провайдер: ${env.storage.provider}`);
+  // Базовый образ в Dockerfile — плавающий тег node:20-alpine, и каждая
+  // пересборка может принести другой рантайм. fetch в Node — это undici,
+  // им ходит весь код бэкапа; сравнить «до» и «после» без этой строки нечем
+  app.log.info(
+    `[runtime] Node ${process.version}, undici ${process.versions.undici ?? '—'}, ` +
+      `OpenSSL ${process.versions.openssl}`,
+  );
   await startBot((m) => app.log.info(m));
 } catch (err) {
   app.log.error(err);

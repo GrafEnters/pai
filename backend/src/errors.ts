@@ -19,10 +19,16 @@ export function describeError(e: unknown, maxDepth = 5): string {
     parts.push(oneLine(current));
 
     // undici при нескольких попытках соединения складывает ошибки в AggregateError:
-    // причина там в errors, а не в cause
+    // причина там в errors, а не в cause.
+    //
+    // Показываем ВСЕ ветки, а не первую. Undici кладёт сюда по ошибке на каждый
+    // адрес, который пробовал, и именно набор адресов отличает мёртвый маршрут
+    // IPv6 от закрытого IPv4 — по одной ветке этого не видно, а чинится разное.
     if (current instanceof AggregateError && current.errors.length) {
-      current = current.errors[0];
-      continue;
+      const rest = maxDepth - depth - 1;
+      if (rest <= 0) break;
+      parts.push(`{${current.errors.map((branch) => describeError(branch, rest)).join(' | ')}}`);
+      break;
     }
     current = (current as { cause?: unknown }).cause;
   }
