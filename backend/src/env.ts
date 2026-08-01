@@ -1,6 +1,41 @@
-import 'dotenv/config';
+import fs from 'node:fs';
+import path from 'node:path';
+import dotenv from 'dotenv';
 import { z } from 'zod';
-import { resolveDataPath } from './paths.js';
+import { backendDir, repoRoot, resolveDataPath } from './paths.js';
+
+/**
+ * Читаем два файла: свой и общий корневой.
+ *
+ * В репозитории источник истины — корневой `.env`, а `start.cmd` копирует его
+ * в `backend/.env` при запуске. Если править корневой файл после этого,
+ * скрипты вроде `npm run drive:auth` брали бы устаревшую копию и жаловались
+ * на «не заданы переменные», хотя они заданы.
+ *
+ * dotenv не перезаписывает уже установленные значения, поэтому порядок задаёт
+ * приоритет: настоящее окружение (Amvera) → backend/.env → корневой .env.
+ */
+function loadEnvFile(file: string): void {
+  let parsed: Record<string, string>;
+  try {
+    parsed = dotenv.parse(fs.readFileSync(file));
+  } catch {
+    return; // файла нет — это нормально, на проде значения приходят из окружения
+  }
+
+  for (const [key, value] of Object.entries(parsed)) {
+    const current = process.env[key];
+    // Настоящее окружение сильнее любых файлов. А пустое значение из одного
+    // файла не должно перебивать непустое из другого: в .env.example половина
+    // ключей объявлена пустыми, и без этой оговорки они затирали бы реальные.
+    if (current === undefined || (current === '' && value !== '')) {
+      process.env[key] = value;
+    }
+  }
+}
+
+loadEnvFile(path.join(backendDir, '.env'));
+loadEnvFile(path.join(repoRoot, '.env'));
 
 /** Пустая строка в .env означает «не задано». */
 const optionalStr = z
