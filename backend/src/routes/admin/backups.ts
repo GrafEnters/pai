@@ -5,7 +5,7 @@ import { env } from '../../env.js';
 import { requireRole } from '../../auth.js';
 import { audit } from '../../audit.js';
 import { backupTransport, hoursSinceLastSuccess, runBackup } from '../../services/backup/index.js';
-import { listManifests, restore } from '../../services/backup/restore.js';
+import { NoBackupsError, listManifests, restore } from '../../services/backup/restore.js';
 import { enqueue } from '../../jobs/index.js';
 import { BACKUP_RUN } from '../../jobs/backup.js';
 
@@ -33,6 +33,9 @@ export async function adminBackupRoutes(app: FastifyInstance) {
 
     return {
       transport: backupTransport.name,
+      // Реальные пути после разбора переменных: опечатку в них видно сразу,
+      // без похода в логи
+      paths: { storage: env.storage.localDir, backups: env.backup.localDir },
       hoursSinceLastSuccess: hours,
       // Индикатор для баннера в админке (§9.6)
       stale: hours === null || hours > env.backup.staleAlertHours,
@@ -74,12 +77,19 @@ export async function adminBackupRoutes(app: FastifyInstance) {
   app.get('/admin/backups/manifests', onlyAdmin, async () => listManifests());
 
   // ===== Проверка целостности (ничего не меняет) =====
-  app.post('/admin/backups/verify', onlyAdmin, async (req) => {
+  app.post('/admin/backups/verify', onlyAdmin, async (req, reply) => {
     const body = z.object({ date: z.string().optional() }).safeParse(req.body ?? {});
-    const report = await restore(
-      { date: body.success ? body.data.date : undefined, target: 'check' },
-      (m) => req.log.info(m),
-    );
+    let report;
+    try {
+      report = await restore(
+        { date: body.success ? body.data.date : undefined, target: 'check' },
+        (m) => req.log.info(m),
+      );
+    } catch (e) {
+      // Отсутствие бэкапов — не ошибка сервера, а состояние новой установки
+      if (e instanceof NoBackupsError) return reply.code(400).send({ error: e.message });
+      throw e;
+    }
     await audit(req, 'backup.verify', 'BackupRun', report.manifest.runId, {
       verified: report.objects.verified,
       mismatched: report.objects.mismatched.length,
@@ -90,12 +100,18 @@ export async function adminBackupRoutes(app: FastifyInstance) {
   // ===== Восстановление медиа =====
   // Полное восстановление БД намеренно НЕ выведено в веб-интерфейс:
   // операция разрушительная, ей место в консоли с явным флагом --yes (§9.5)
-  app.post('/admin/backups/restore-media', onlyAdmin, async (req) => {
+  app.post('/admin/backups/restore-media', onlyAdmin, async (req, reply) => {
     const body = z.object({ date: z.string().optional() }).safeParse(req.body ?? {});
-    const report = await restore(
-      { date: body.success ? body.data.date : undefined, target: 'media' },
-      (m) => req.log.info(m),
-    );
+    let report;
+    try {
+      report = await restore(
+        { date: body.success ? body.data.date : undefined, target: 'media' },
+        (m) => req.log.info(m),
+      );
+    } catch (e) {
+      if (e instanceof NoBackupsError) return reply.code(400).send({ error: e.message });
+      throw e;
+    }
     await audit(req, 'backup.restore_media', 'BackupRun', report.manifest.runId, {
       restored: report.media.restored,
     });

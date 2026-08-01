@@ -103,7 +103,20 @@ const schema = z.object({
   ANALYTICS_ROLLUP_FULL_CRON: z.string().default('0 3 * * *'),
 });
 
-const parsed = schema.safeParse(process.env);
+/**
+ * Значения обрезаются перед разбором.
+ *
+ * Переменные на хостингах задают через веб-форму, и при копировании в них
+ * легко попадает пробел или табуляция. Для путей это тихая катастрофа:
+ * значение вроде "	/data/storage" перестаёт быть абсолютным, превращается
+ * в /app/<таб>/data/storage и уезжает мимо постоянного диска — всё работает
+ * ровно до первой пересборки.
+ */
+const rawEnv = Object.fromEntries(
+  Object.entries(process.env).map(([key, value]) => [key, typeof value === 'string' ? value.trim() : value]),
+);
+
+const parsed = schema.safeParse(rawEnv);
 if (!parsed.success) {
   const issues = parsed.error.issues.map((i) => `  • ${i.path.join('.')}: ${i.message}`).join('\n');
   throw new Error(`Некорректные переменные окружения:\n${issues}`);

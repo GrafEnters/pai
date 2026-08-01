@@ -23,6 +23,7 @@ interface BackupRun {
 
 interface BackupState {
   transport: string;
+  paths: { storage: string; backups: string };
   hoursSinceLastSuccess: number | null;
   stale: boolean;
   staleThresholdHours: number;
@@ -111,6 +112,15 @@ export function Backups() {
           </div>
         </div>
       )}
+
+      {/* Пути после разбора переменных. Лишний пробел или таб в значении
+          переменной делает путь относительным, и файлы уезжают мимо
+          постоянного диска — здесь это видно сразу. */}
+      <div className="card mb-4 p-3 text-sm">
+        <div className="mb-1 text-xs uppercase tracking-wide text-ink-600">Куда пишутся файлы</div>
+        <PathRow label="Медиа" path={data.paths.storage} />
+        <PathRow label="Бэкапы" path={data.paths.backups} />
+      </div>
 
       <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Транспорт" value={data.transport} />
@@ -259,6 +269,22 @@ export function Backups() {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+/** Путь с предупреждением, если он не абсолютный: почти всегда это опечатка. */
+function PathRow({ label, path }: { label: string; path: string }) {
+  const absolute = path.startsWith('/') || /^[A-Za-z]:[\/]/.test(path);
+  return (
+    <div className="flex flex-wrap items-baseline gap-2">
+      <span className="w-16 shrink-0 text-ink-500">{label}</span>
+      <code className={`break-all ${absolute ? 'text-ink-200' : 'text-amber-300'}`}>{JSON.stringify(path)}</code>
+      {!absolute && (
+        <span className="text-xs text-amber-400">
+          путь не абсолютный — проверьте переменную на лишние пробелы
+        </span>
+      )}
     </div>
   );
 }

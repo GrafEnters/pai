@@ -3,6 +3,7 @@ import { prisma } from '../../db.js';
 import { storage } from '../storage/index.js';
 import { asDoc, collectMediaIds } from '../../content/schema.js';
 import { backupTransport } from './transport.js';
+import { env } from '../../env.js';
 import { MANIFEST_LATEST, SCHEMA_VERSION, type Manifest } from './index.js';
 import { restoreDatabase } from './db-dump.js';
 
@@ -27,6 +28,13 @@ export interface RestoreReport {
   elapsedSec: number;
 }
 
+/** Куда именно смотрит текущий транспорт — нужно в сообщениях об ошибках. */
+function describeTarget(): string {
+  return backupTransport.name === 'local-drive'
+    ? `${env.backup.localDir}/${env.backup.rootFolderName}`
+    : `Google Drive → ${env.backup.rootFolderName}`;
+}
+
 /** Список доступных прогонов — `npm run restore -- --list`. */
 export async function listManifests(): Promise<Array<{ key: string; runId?: number; finishedAt?: string }>> {
   const objects = await backupTransport.list('manifests');
@@ -44,9 +52,27 @@ export async function listManifests(): Promise<Array<{ key: string; runId?: numb
   return out.sort((a, b) => (a.finishedAt ?? '').localeCompare(b.finishedAt ?? '')).reverse();
 }
 
+/** Бэкапов ещё не делали — это не поломка, а нормальное состояние новой установки. */
+export class NoBackupsError extends Error {
+  constructor(where: string) {
+    super(
+      'Бэкапов ещё не было — проверять нечего. Запустите первый прогон кнопкой ' +
+        `«Полный» в разделе «Бэкапы».
+
+Искали здесь: ${where}`,
+    );
+    this.name = 'NoBackupsError';
+  }
+}
+
 async function loadManifest(date?: string): Promise<Manifest> {
   if (!date) {
-    const buf = await backupTransport.get(MANIFEST_LATEST);
+    let buf: Buffer;
+    try {
+      buf = await backupTransport.get(MANIFEST_LATEST);
+    } catch {
+      throw new NoBackupsError(`${describeTarget()}/${MANIFEST_LATEST}`);
+    }
     return JSON.parse(buf.toString('utf8')) as Manifest;
   }
   const objects = await backupTransport.list(`manifests/${date}`);
