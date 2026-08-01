@@ -9,7 +9,13 @@ import { safeAlert } from '../notify/index.js';
 import { asDoc } from '../../content/schema.js';
 import { buildRenderContext } from '../guides.js';
 import { toMarkdown } from '../../content/render.js';
-import { backupTransport, getTransport, type BackupTransport, type TransportName } from './transport.js';
+import {
+  TransportUnreachableError,
+  backupTransport,
+  getTransport,
+  type BackupTransport,
+  type TransportName,
+} from './transport.js';
 import { dumpDatabase } from './db-dump.js';
 
 export const MANIFEST_LATEST = 'manifest-latest.json';
@@ -173,6 +179,16 @@ export async function runBackup(
         bytes += content.length;
         manifestObjects.push({ key: candidate.key, sha256: hash, size: content.length, fileId });
       } catch (e) {
+        // Канал до хранилища лежит — дальше идти незачем. Каждый следующий
+        // объект потратит те же попытки с тем же исходом, а объектов сотни:
+        // прогон растянется на часы и всё равно закончится ничем
+        if (e instanceof TransportUnreachableError) {
+          throw new Error(
+            `${tname}: связи нет, прогон прерван на объекте ${candidate.key} ` +
+              `(проверено ${uploaded + skipped} из ${candidates.length}). ${describeError(e)}`,
+            { cause: e },
+          );
+        }
         const message = `объект ${candidate.key}: ${describeError(e)}`;
         errors.push(message);
         say(`[backup] ОШИБКА ${message}`);
@@ -514,8 +530,10 @@ async function warnIfLowQuota(transport: BackupTransport, say: (m: string) => vo
       );
     }
   } catch (e) {
-    // Незнание квоты прогон не останавливает, но и молчать нельзя: это первый
-    // поход в хранилище за прогон, и он первым же сообщает, что связи нет
+    // Это первый поход в хранилище за прогон. Если связи нет — сообщаем сразу
+    // и не начинаем перебирать объекты: отказ будет тот же, только через часы
+    if (e instanceof TransportUnreachableError) throw e;
+    // Провайдер, который просто не умеет отвечать о квоте, — не ошибка
     say(`[backup] не удалось узнать свободное место: ${describeError(e)}`);
   }
 }

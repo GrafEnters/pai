@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { env } from '../../env.js';
 import { SETTING_KEYS, getSetting, setSetting } from '../../settings.js';
 import { driveAccessToken, handleAuthError } from './drive-auth.js';
-import type { BackupTransport, RemoteObject } from './transport.js';
+import { TransportUnreachableError, type BackupTransport, type RemoteObject } from './transport.js';
 
 /**
  * Google Drive API v3 через REST. НЕ ЗАПУСКАЛОСЬ ВЖИВУЮ — нет аккаунта.
@@ -19,22 +19,20 @@ const UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3';
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
 const RESUMABLE_THRESHOLD = 5 * 1024 * 1024;
 
+/** Ответ сервера про лимиты стоит переждать: 429 и 5xx обычно живут секунды. */
 const MAX_RETRIES = 5;
-/** Обычный вызов API — секунды. Без явного срока зависшее соединение висит вечно. */
-const API_TIMEOUT_MS = 60_000;
+/**
+ * А вот молчащий канал пережидать почти бесполезно, и цена ошибки здесь другая:
+ * попытки умножаются на число объектов. Три попытки по 20 с — это минута
+ * на объект в худшем случае, шесть по 60 с превращали прогон в многочасовой.
+ */
+const MAX_NETWORK_RETRIES = 2;
+const API_TIMEOUT_MS = 20_000;
 /** Передача самих байтов — мегабайты по узкому каналу, тут нужен запас. */
 const TRANSFER_TIMEOUT_MS = 15 * 60_000;
 
 /** Кэш «путь → folderId», чтобы не спрашивать Drive о каждой папке при каждом файле. */
 const folderCache = new Map<string, string>();
-
-/** Сбой на уровне сети, а не ответ сервера: до Drive не дошли вовсе. */
-class DriveUnreachableError extends Error {
-  constructor(message: string, cause: unknown) {
-    super(message, { cause });
-    this.name = 'DriveUnreachableError';
-  }
-}
 
 /**
  * fetch со сроком и с указанием хоста, до которого не достучались.
@@ -48,7 +46,7 @@ async function netFetch(url: string, init: RequestInit, timeoutMs: number): Prom
     return await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
   } catch (e) {
     const host = new URL(url).host;
-    throw new DriveUnreachableError(`нет связи с ${host} (срок ${Math.round(timeoutMs / 1000)} с)`, e);
+    throw new TransportUnreachableError(`нет связи с ${host} (срок ${Math.round(timeoutMs / 1000)} с)`, e);
   }
 }
 
@@ -69,16 +67,16 @@ async function call(url: string, init: RequestInit = {}, timeoutMs = API_TIMEOUT
         timeoutMs,
       );
     } catch (e) {
-      // Сеть моргнула — повторяем на тех же условиях, что и 5xx. Раньше любой
-      // единичный сбой соединения ронял весь прогон целиком.
-      if (attempt < MAX_RETRIES) {
+      // Сеть могла моргнуть — пара повторов оправдана. Но их немного:
+      // если канал лежит, повторы лишь умножают простой на число объектов
+      if (attempt < MAX_NETWORK_RETRIES) {
         await backoff(attempt);
         continue;
       }
       // cause берём исходный, чтобы в логе не задваивалась промежуточная обёртка
-      const cause = e instanceof DriveUnreachableError ? e.cause : e;
+      const cause = e instanceof TransportUnreachableError ? e.cause : e;
       const reason = e instanceof Error ? e.message : String(e);
-      throw new DriveUnreachableError(`Drive недоступен, попыток ${attempt + 1}: ${reason}`, cause);
+      throw new TransportUnreachableError(`Drive недоступен, попыток ${attempt + 1}: ${reason}`, cause);
     }
 
     if (res.ok) return res;
