@@ -2,7 +2,10 @@ import type { Config } from 'tailwindcss';
 
 // Тёмная тема по умолчанию (PLAN §5.5), палитра — как в проектах команды
 const config: Config = {
-  content: ['./app/**/*.{ts,tsx}', './src/**/*.{ts,tsx}'],
+  // components/ и lib/ обязательно перечислять явно: без них Tailwind не видит
+  // классы, которые встречаются только в компонентах, и молча их не генерирует —
+  // вёрстка при этом не ломается, а просто теряет часть отступов и цветов
+  content: ['./app/**/*.{ts,tsx}', './components/**/*.{ts,tsx}', './lib/**/*.{ts,tsx}'],
   theme: {
     extend: {
       colors: {

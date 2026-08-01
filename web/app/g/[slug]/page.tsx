@@ -6,7 +6,7 @@ import type { CategoryNode, GuideFull } from '@/lib/types';
 import { LEVEL_LABEL, readingTimeLabel } from '@/lib/types';
 import { GuideCardView, Header } from '@/components/Shell';
 import { GuideContent } from '@/components/GuideContent';
-import { Toc } from '@/components/Toc';
+import { Toc, TocMobile } from '@/components/Toc';
 import { Feedback } from '@/components/Feedback';
 import { ReadingTracker } from '@/components/ReadingTracker';
 
@@ -61,7 +61,18 @@ export default async function GuidePage({ params }: { params: Promise<{ slug: st
       <ReadingTracker guideId={guide.id} readingTimeSec={guide.readingTimeSec} />
 
       <div className="mx-auto flex max-w-6xl gap-8 px-4 py-8">
-        <article className="min-w-0 flex-1">
+        {guide.toc.length >= 2 && (
+          <aside className="hidden w-64 shrink-0 lg:block">
+            <div className="sticky top-20 max-h-[calc(100vh-6rem)] overflow-y-auto pb-4">
+              <div className="mb-2 pl-3 text-xs uppercase tracking-wide text-ink-600">Содержание</div>
+              <Toc items={guide.toc} />
+            </div>
+          </aside>
+        )}
+
+        {/* pb даёт запас прокрутки: без него последние разделы не могут встать
+            под шапку, и оглавление на них никогда не переключится */}
+        <article className="min-w-0 flex-1 pb-[45vh]">
           <nav aria-label="Хлебные крошки" className="flex items-center gap-1.5 text-sm text-ink-600">
             <Link href="/" className="hover:text-ink-400">
               Главная
@@ -107,13 +118,8 @@ export default async function GuidePage({ params }: { params: Promise<{ slug: st
             </div>
           )}
 
-          {/* Оглавление на мобильных — над текстом, на десктопе — сбоку */}
-          {guide.toc.length > 2 && (
-            <details className="mt-6 rounded-lg border border-ink-800 p-3 lg:hidden">
-              <summary className="cursor-pointer text-sm font-medium text-ink-300">Содержание</summary>
-              <Toc items={guide.toc} className="mt-2" />
-            </details>
-          )}
+          {/* На узких экранах оглавление сворачивается над текстом */}
+          <TocMobile items={guide.toc} />
 
           <div className="mt-6 border-t border-ink-800 pt-2">
             <GuideContent guide={guide} />
@@ -132,15 +138,6 @@ export default async function GuidePage({ params }: { params: Promise<{ slug: st
             </section>
           )}
         </article>
-
-        {guide.toc.length > 2 && (
-          <aside className="hidden w-56 shrink-0 lg:block">
-            <div className="sticky top-20">
-              <div className="mb-2 text-xs uppercase tracking-wide text-ink-600">Содержание</div>
-              <Toc items={guide.toc} />
-            </div>
-          </aside>
-        )}
       </div>
     </>
   );
