@@ -7,16 +7,27 @@
 #   /admin/*             → статика админки
 #   всё остальное        → Next.js  (127.0.0.1:3000)
 #
-# persistenceMount — единственная папка, переживающая пересборку.
-# В ней лежат загруженные медиа и бэкапы; /app при пересборке теряется.
+# Форма файла — как у генератора Amvera, вплоть до containerPort строкой
+# и явных null: сверено с manifest.amvera.ru, чтобы не расходиться с тем,
+# что платформа ожидает.
 
 meta:
   environment: docker
+  toolchain:
+    name: docker
 
 build:
   dockerfile: Dockerfile
+  skip: false
 
 run:
-  containerPort: 80
-  servicePort: 80
+  # image/command/args не задаём: точка входа определена в Dockerfile (supervisord)
+  image: null
+  command: null
+  args: null
+  # Единственная папка, переживающая пересборку. В ней лежат загруженные медиа
+  # и бэкапы; /app при пересборке стирается.
   persistenceMount: /data
+  # Порт, который слушает nginx внутри контейнера. Именно строкой — так его
+  # пишет генератор Amvera.
+  containerPort: "80"

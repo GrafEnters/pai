@@ -152,9 +152,12 @@ CORS не нужен; адрес API становится относительн
 
 ```yaml
 run:
-  containerPort: 80
   persistenceMount: /data
+  containerPort: "80"
 ```
+
+Форма файла сверена с генератором [manifest.amvera.ru](https://manifest.amvera.ru):
+`containerPort` там задаётся **строкой**, а не числом.
 
 ## Шаг 4. Переменные окружения — 15 минут
 
