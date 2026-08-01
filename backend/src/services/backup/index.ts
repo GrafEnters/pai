@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import type { BackupKind } from '@prisma/client';
 import { prisma } from '../../db.js';
 import { env } from '../../env.js';
+import { describeError } from '../../errors.js';
 import { SETTING_KEYS, setSetting } from '../../settings.js';
 import { storage } from '../storage/index.js';
 import { safeAlert } from '../notify/index.js';
@@ -172,7 +173,7 @@ export async function runBackup(
         bytes += content.length;
         manifestObjects.push({ key: candidate.key, sha256: hash, size: content.length, fileId });
       } catch (e) {
-        const message = `объект ${candidate.key}: ${String(e)}`;
+        const message = `объект ${candidate.key}: ${describeError(e)}`;
         errors.push(message);
         say(`[backup] ОШИБКА ${message}`);
       }
@@ -255,7 +256,7 @@ export async function runBackup(
 
     return { runId: run.id, status, uploaded, skipped, bytes, deleted, manifestKey, errors };
   } catch (e) {
-    const message = String(e);
+    const message = describeError(e);
     await prisma.backupRun.update({
       where: { id: run.id },
       data: {
@@ -512,8 +513,10 @@ async function warnIfLowQuota(transport: BackupTransport, say: (m: string) => vo
           `(${((quota.total - quota.used) / 1024 ** 3).toFixed(1)} ГБ). Скоро бэкапы начнут падать.`,
       );
     }
-  } catch {
-    /* провайдер не сообщает о квоте — это не ошибка */
+  } catch (e) {
+    // Незнание квоты прогон не останавливает, но и молчать нельзя: это первый
+    // поход в хранилище за прогон, и он первым же сообщает, что связи нет
+    say(`[backup] не удалось узнать свободное место: ${describeError(e)}`);
   }
 }
 

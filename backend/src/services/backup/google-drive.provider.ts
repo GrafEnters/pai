@@ -19,32 +19,84 @@ const UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3';
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
 const RESUMABLE_THRESHOLD = 5 * 1024 * 1024;
 
+const MAX_RETRIES = 5;
+/** Обычный вызов API — секунды. Без явного срока зависшее соединение висит вечно. */
+const API_TIMEOUT_MS = 60_000;
+/** Передача самих байтов — мегабайты по узкому каналу, тут нужен запас. */
+const TRANSFER_TIMEOUT_MS = 15 * 60_000;
+
 /** Кэш «путь → folderId», чтобы не спрашивать Drive о каждой папке при каждом файле. */
 const folderCache = new Map<string, string>();
 
-async function call(url: string, init: RequestInit = {}, attempt = 0): Promise<Response> {
-  const token = await driveAccessToken();
-  const res = await fetch(url, {
-    ...init,
-    headers: { ...(init.headers ?? {}), authorization: `Bearer ${token}` },
-  });
-
-  if (res.ok) return res;
-
-  const body = await res.text().catch(() => '');
-
-  // Квота и лимиты API: экспоненциальный бэкофф (§9.6)
-  const rateLimited = res.status === 429 || (res.status === 403 && /rateLimitExceeded|userRateLimit/.test(body));
-  if ((rateLimited || res.status >= 500) && attempt < 5) {
-    const delay = Math.min(60_000, 2 ** attempt * 1000 + Math.floor(Math.random() * 500));
-    await new Promise((r) => setTimeout(r, delay));
-    return call(url, init, attempt + 1);
+/** Сбой на уровне сети, а не ответ сервера: до Drive не дошли вовсе. */
+class DriveUnreachableError extends Error {
+  constructor(message: string, cause: unknown) {
+    super(message, { cause });
+    this.name = 'DriveUnreachableError';
   }
+}
 
-  if (res.status === 401 || res.status === 403) {
-    await handleAuthError(new Error(body || `Drive ${res.status}`));
+/**
+ * fetch со сроком и с указанием хоста, до которого не достучались.
+ *
+ * undici сообщает обо всех сетевых сбоях одинаковым `TypeError: fetch failed`,
+ * а настоящую причину прячет в `cause` — её разворачивает describeError выше
+ * по стеку, здесь важно лишь не потерять сам cause и назвать адрес.
+ */
+async function netFetch(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  try {
+    return await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+  } catch (e) {
+    const host = new URL(url).host;
+    throw new DriveUnreachableError(`нет связи с ${host} (срок ${Math.round(timeoutMs / 1000)} с)`, e);
   }
-  throw new Error(`Drive API ${res.status}: ${body.slice(0, 400)}`);
+}
+
+async function backoff(attempt: number): Promise<void> {
+  const delay = Math.min(60_000, 2 ** attempt * 1000 + Math.floor(Math.random() * 500));
+  await new Promise((r) => setTimeout(r, delay));
+}
+
+async function call(url: string, init: RequestInit = {}, timeoutMs = API_TIMEOUT_MS): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    const token = await driveAccessToken();
+
+    let res: Response;
+    try {
+      res = await netFetch(
+        url,
+        { ...init, headers: { ...(init.headers ?? {}), authorization: `Bearer ${token}` } },
+        timeoutMs,
+      );
+    } catch (e) {
+      // Сеть моргнула — повторяем на тех же условиях, что и 5xx. Раньше любой
+      // единичный сбой соединения ронял весь прогон целиком.
+      if (attempt < MAX_RETRIES) {
+        await backoff(attempt);
+        continue;
+      }
+      // cause берём исходный, чтобы в логе не задваивалась промежуточная обёртка
+      const cause = e instanceof DriveUnreachableError ? e.cause : e;
+      const reason = e instanceof Error ? e.message : String(e);
+      throw new DriveUnreachableError(`Drive недоступен, попыток ${attempt + 1}: ${reason}`, cause);
+    }
+
+    if (res.ok) return res;
+
+    const body = await res.text().catch(() => '');
+
+    // Квота и лимиты API: экспоненциальный бэкофф (§9.6)
+    const rateLimited = res.status === 429 || (res.status === 403 && /rateLimitExceeded|userRateLimit/.test(body));
+    if ((rateLimited || res.status >= 500) && attempt < MAX_RETRIES) {
+      await backoff(attempt);
+      continue;
+    }
+
+    if (res.status === 401 || res.status === 403) {
+      await handleAuthError(new Error(body || `Drive ${res.status}`));
+    }
+    throw new Error(`Drive API ${res.status}: ${body.slice(0, 400)}`);
+  }
 }
 
 async function findChild(name: string, parentId: string, isFolder: boolean): Promise<string | null> {
@@ -130,11 +182,15 @@ export const googleDriveTransport: BackupTransport = {
       const location = start.headers.get('location');
       if (!location) throw new Error('Drive не вернул URL для resumable-загрузки');
 
-      const put = await fetch(location, {
-        method: 'PUT',
-        headers: { 'content-type': mime, 'content-length': String(content.length) },
-        body: new Uint8Array(content),
-      });
+      const put = await netFetch(
+        location,
+        {
+          method: 'PUT',
+          headers: { 'content-type': mime, 'content-length': String(content.length) },
+          body: new Uint8Array(content),
+        },
+        TRANSFER_TIMEOUT_MS,
+      );
       if (!put.ok) throw new Error(`Drive resumable ${put.status}: ${(await put.text()).slice(0, 300)}`);
       uploaded = (await put.json()) as typeof uploaded;
     } else {
@@ -165,7 +221,7 @@ export const googleDriveTransport: BackupTransport = {
       id = await findChild(name, await ensureFolders(segments), false);
     }
     if (!id) throw new Error(`В бэкапе нет объекта ${key}`);
-    const res = await call(`${API}/files/${id}?alt=media`);
+    const res = await call(`${API}/files/${id}?alt=media`, {}, TRANSFER_TIMEOUT_MS);
     return Buffer.from(await res.arrayBuffer());
   },
 

@@ -69,7 +69,7 @@ function delegate(table: TableName): {
  * выполнялся буквально: там pg_dump в PATH обычно нет.
  */
 export async function dumpDatabase(log: (m: string) => void = console.log): Promise<DbDump> {
-  const viaPath = await tryPgDump(['-Fc', '--no-owner', '--no-acl', env.databaseUrl], null);
+  const viaPath = await tryPgDump(['-Fc', '--no-owner', '--no-acl', env.databaseUrl], null, log);
   if (viaPath) {
     log('[backup] дамп через pg_dump из PATH');
     return { format: 'pgdump', content: await gzip(viaPath), method: 'pg_dump' };
@@ -78,7 +78,7 @@ export async function dumpDatabase(log: (m: string) => void = console.log): Prom
   const container = env.backup.pgDumpDockerContainer;
   if (container) {
     const url = dockerInternalUrl(env.databaseUrl);
-    const viaDocker = await tryPgDump(['-Fc', '--no-owner', '--no-acl', url], container);
+    const viaDocker = await tryPgDump(['-Fc', '--no-owner', '--no-acl', url], container, log);
     if (viaDocker) {
       log(`[backup] дамп через docker exec ${container} pg_dump`);
       return { format: 'pgdump', content: await gzip(viaDocker), method: `docker:${container}` };
@@ -89,9 +89,13 @@ export async function dumpDatabase(log: (m: string) => void = console.log): Prom
   return { format: 'ndjson', content: await gzip(await logicalDump()), method: 'ndjson' };
 }
 
-async function tryPgDump(args: string[], container: string | null): Promise<Buffer | null> {
+async function tryPgDump(
+  args: string[],
+  container: string | null,
+  log: (m: string) => void,
+): Promise<Buffer | null> {
+  const cmd = container ? 'docker' : 'pg_dump';
   try {
-    const cmd = container ? 'docker' : 'pg_dump';
     const fullArgs = container ? ['exec', '-i', container, 'pg_dump', ...args] : args;
     const { stdout } = await exec(cmd, fullArgs, {
       encoding: 'buffer',
@@ -99,9 +103,36 @@ async function tryPgDump(args: string[], container: string | null): Promise<Buff
       timeout: 30 * 60_000,
     });
     return stdout.length > 0 ? stdout : null;
-  } catch {
+  } catch (e) {
+    // Причину раньше проглатывали, и в логе оставалось только «pg_dump
+    // недоступен» — по нему не отличить отсутствие бинарника от отказа
+    // из-за несовпадения версий с сервером, а чинится это по-разному
+    log(`[backup] ${cmd} не сработал: ${pgDumpReason(e)}`);
     return null;
   }
+}
+
+/**
+ * Короткая причина отказа pg_dump — только из stderr и кода ошибки.
+ *
+ * Брать `e.message` нельзя: execFile кладёт туда всю командную строку,
+ * а в ней строка подключения с паролем от БД. Лог прогона видно в админке.
+ */
+function pgDumpReason(e: unknown): string {
+  const err = e as { stderr?: Buffer | string; code?: unknown };
+  const stderr = Buffer.isBuffer(err.stderr)
+    ? err.stderr.toString('utf8')
+    : typeof err.stderr === 'string'
+      ? err.stderr
+      : '';
+  const text = stderr.trim().split('\n').filter(Boolean).slice(-2).join('; ');
+  if (text) return redactCredentials(text).slice(0, 300);
+  return typeof err.code === 'string' ? err.code : 'причина неизвестна';
+}
+
+/** Строка подключения могла попасть в вывод — пароль из неё в лог не пускаем. */
+function redactCredentials(text: string): string {
+  return text.replace(/(\w+:\/\/[^:@\s/]+):[^@\s/]*@/g, '$1:***@');
 }
 
 /** Внутри контейнера база доступна не по localhost, а по имени сервиса. */
