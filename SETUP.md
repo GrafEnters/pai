@@ -165,12 +165,26 @@ run:
 Пароли и токены добавляйте как **секреты**: они хранятся в отдельном хранилище,
 а не в базе платформы.
 
-Сначала сгенерируйте два секрета:
+Сначала сгенерируйте два секрета — по 32 случайных байта в hex.
+Выполните дважды: первый результат в `JWT_SECRET`, второй в `REVALIDATE_SECRET`.
+
+**Через Node** (он у вас уже стоит — на нём работает проект). Годится в любой
+консоли: PowerShell, cmd, Git Bash, терминал macOS и Linux:
 
 ```bash
-openssl rand -hex 32   # → JWT_SECRET
-openssl rand -hex 32   # → REVALIDATE_SECRET
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
+
+**Чистый PowerShell**, если Node под рукой нет:
+
+```powershell
+$b = New-Object 'System.Byte[]' 32; [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); ($b | ForEach-Object { $_.ToString('x2') }) -join ''
+```
+
+> В PowerShell **нет** `openssl` — он ставится вместе с Git и доступен только
+> в Git Bash. Если привыкли к `openssl rand -hex 32`, запускайте его оттуда.
+> Не берите `Get-Random`: это не криптографический генератор, для секретов
+> он не годится.
 
 | Переменная | Значение | Тип |
 |---|---|---|

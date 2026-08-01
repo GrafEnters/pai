@@ -112,7 +112,8 @@ const e = parsed.data;
 
 if (e.NODE_ENV === 'production' && e.JWT_SECRET === DEFAULT_JWT_SECRET) {
   throw new Error(
-    'JWT_SECRET равен небезопасному значению по умолчанию. Сгенерируйте свой: openssl rand -hex 32',
+    'JWT_SECRET равен небезопасному значению по умолчанию. Сгенерируйте свой:\n' +
+      `  node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`,
   );
 }
 
