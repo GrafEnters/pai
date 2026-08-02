@@ -62,8 +62,33 @@ export interface NetCheckReport {
   runtime: { node: string; undici: string; openssl: string; platform: string };
   /** Внешний адрес, с которого нас видит интернет: при переезде контейнера он меняется */
   egressIp: string | null;
+  /** Куда направлен хост API в обход DNS, если направлен */
+  apiHost: { name: string; pinnedTo: string | null };
+  /** Отвечает ли Drive API по существу, а не только на уровне соединения */
+  driveApi: ProbeResult & { url: string; verdict: string };
   hosts: HostReport[];
   summary: string[];
+}
+
+/**
+ * Прямая проверка API вместо косвенной.
+ *
+ * Соединение может устанавливаться, а API не обслуживаться: так вышло с
+ * googleapis.com без поддомена — TLS проходил, а на путь API приходил HTML
+ * с 404. Проверяем то, что нужно на самом деле: без токена Drive обязан
+ * ответить 401 JSON, и такой ответ доказывает, что путь до API рабочий.
+ */
+async function driveApiProbe(): Promise<NetCheckReport['driveApi']> {
+  const url = `https://${env.google.apiHost}/drive/v3/about?fields=storageQuota`;
+  const result = await probeFetch(url);
+
+  let verdict: string;
+  if (!result.ok) verdict = 'до хоста не достучались — смотрите tcp по этому имени ниже';
+  else if (result.status === 401) verdict = 'API отвечает: 401 без токена — это правильный ответ, путь рабочий';
+  else if (result.status === 404) verdict = 'хост доступен, но Drive API на нём не обслуживается — нужен другой';
+  else verdict = `неожиданный ответ ${result.status}`;
+
+  return { ...result, url, verdict };
 }
 
 /** TCP-соединение до конкретного адреса. Ответ сервера не важен — важен сам факт. */
@@ -114,31 +139,42 @@ function probeHttps(url: string): Promise<ProbeResult> {
   });
 }
 
-async function resolveHost(host: string): Promise<HostReport['dns']> {
+type Address = { address: string; family: 4 | 6 };
+
+async function resolveHost(host: string): Promise<{ dns: HostReport['dns']; entries: Address[] }> {
   const out: HostReport['dns'] = { lookup: [], a: [], aaaa: [] };
+  const entries: Address[] = [];
+
   try {
     // lookup — это getaddrinfo, ровно то, чем адрес выбирает сам Node при
-    // соединении. resolve4/resolve6 идут в DNS напрямую и могут разойтись
-    // с ним: расхождение само по себе объясняет «резолвится, но не грузится»
+    // соединении, и единственное, что видит подстановку в /etc/hosts.
+    // resolve4/resolve6 идут в DNS напрямую и с ним расходятся: именно это
+    // расхождение и объясняет «в DNS мёртвые адреса, а запросы проходят»
     const all = await dns.lookup(host, { all: true });
     out.lookup = all.map((a) => `${a.address} (v${a.family})`);
+    for (const a of all) entries.push({ address: a.address, family: a.family === 6 ? 6 : 4 });
   } catch (e) {
     out.error = describeError(e);
   }
   out.a = await dns.resolve4(host).catch(() => []);
   out.aaaa = await dns.resolve6(host).catch(() => []);
-  return out;
+  return { dns: out, entries };
 }
 
 async function checkHost(host: string, role: string): Promise<HostReport> {
-  const resolved = await resolveHost(host);
+  const { dns: resolved, entries } = await resolveHost(host);
   const url = `https://${host}/`;
 
-  const addresses: { address: string; family: 4 | 6 }[] = [
+  const fromDns: Address[] = [
     ...resolved.a.slice(0, MAX_ADDRESSES_PER_FAMILY).map((address) => ({ address, family: 4 as const })),
     ...resolved.aaaa.slice(0, MAX_ADDRESSES_PER_FAMILY).map((address) => ({ address, family: 6 as const })),
   ];
-  const skipped = resolved.a.length + resolved.aaaa.length - addresses.length;
+  // Адрес из getaddrinfo может отсутствовать в DNS — так выглядит подстановка
+  // через /etc/hosts. Проверять надо именно его: соединяется Node по нему
+  const addresses = [...entries, ...fromDns].filter(
+    (a, i, all) => all.findIndex((o) => o.address === a.address) === i,
+  );
+  const skipped = Math.max(0, resolved.a.length + resolved.aaaa.length - addresses.length);
 
   // Параллельно: адреса независимы, а недоступные стоят полного таймаута каждый
   const tcp = await Promise.all(addresses.map(({ address, family }) => tcpConnect(address, 443, family)));
@@ -182,8 +218,9 @@ export async function netcheck(extraHosts: string[] = []): Promise<NetCheckRepor
   // Один и тот же хост мог прийти и из настроек, и из запроса
   const unique = targets.filter((t, i) => t.host && targets.findIndex((o) => o.host === t.host) === i);
 
-  const [ip, hosts] = await Promise.all([
+  const [ip, driveApi, hosts] = await Promise.all([
     egressIp(),
+    driveApiProbe(),
     (async () => {
       const out: HostReport[] = [];
       for (const target of unique) out.push(await checkHost(target.host, target.role));
@@ -199,8 +236,10 @@ export async function netcheck(extraHosts: string[] = []): Promise<NetCheckRepor
       platform: `${process.platform}/${process.arch}`,
     },
     egressIp: ip,
+    apiHost: { name: env.google.apiHost, pinnedTo: env.google.apiAddress ?? null },
+    driveApi,
     hosts,
-    summary: hosts.map(summarize),
+    summary: [`Drive API (${driveApi.url}): ${driveApi.verdict}`, ...hosts.map(summarize)],
   };
 }
 

@@ -143,6 +143,13 @@ const schema = z.object({
    * какой хост доступен (см. SETUP.md).
    */
   GOOGLE_API_HOST: z.string().default('www.googleapis.com'),
+  /**
+   * Адрес, на который направить GOOGLE_API_HOST в обход DNS. Подстановку делает
+   * run-backend.sh через /etc/hosts — здесь значение нужно только затем, чтобы
+   * /admin/system/netcheck показал, куда на самом деле уходят запросы, и не
+   * пришлось гадать, применилась подстановка или нет.
+   */
+  GOOGLE_API_ADDRESS: optionalStr,
 
   ANALYTICS_READ_SCROLL_PCT: num(70),
   ANALYTICS_READ_TIME_RATIO: num(0.4),
@@ -272,6 +279,7 @@ export const env = {
     refreshToken: e.GOOGLE_REFRESH_TOKEN,
     redirectUri: e.GOOGLE_OAUTH_REDIRECT_URI,
     apiHost: e.GOOGLE_API_HOST,
+    apiAddress: e.GOOGLE_API_ADDRESS,
   },
 
   analytics: {
