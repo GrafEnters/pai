@@ -259,6 +259,9 @@ export function publicUser(u: User) {
     role: u.role,
     teamRole: u.teamRole,
     email: u.email,
+    // Не сам хеш, а только факт: пришедшему по ссылке пароль никто не задавал,
+    // и профиль должен предложить его завести
+    hasPassword: !!u.passwordHash,
     telegramUsername: u.telegramUsername,
     telegramId: u.telegramId ? u.telegramId.toString() : null,
     isActive: u.isActive,

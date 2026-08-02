@@ -80,13 +80,22 @@ export async function adminInviteRoutes(app: FastifyInstance) {
     return created.map((c) => ({ ...c, url: `${env.publicWebUrl}/invite?code=${c.code}` }));
   });
 
+  // Ссылка многоразовая, поэтому «удалить» значит прежде всего «закрыть вход»:
+  // пока она жива, по ней заходят. По той, где уже кто-то прошёл, оставляем
+  // запись — иначе из админки пропадёт, откуда взялись эти люди
   app.delete('/admin/invites/:id', onlyAdmin, async (req, reply) => {
     const { id } = z.object({ id: z.coerce.number().int().positive() }).parse(req.params);
     const invite = await prisma.inviteCode.findUnique({ where: { id } });
-    if (!invite) return reply.code(404).send({ error: 'Код не найден' });
-    if (invite.usedById) return reply.code(400).send({ error: 'Код уже использован, удалять нечего' });
+    if (!invite) return reply.code(404).send({ error: 'Ссылка не найдена' });
+
+    if (invite.usedCount > 0) {
+      await prisma.inviteCode.update({ where: { id }, data: { expiresAt: new Date() } });
+      await audit(req, 'invite.revoke', 'InviteCode', id, { code: invite.code, usedCount: invite.usedCount });
+      return { ok: true, revoked: true };
+    }
+
     await prisma.inviteCode.delete({ where: { id } });
     await audit(req, 'invite.delete', 'InviteCode', id, { code: invite.code });
-    return { ok: true };
+    return { ok: true, revoked: false };
   });
 }

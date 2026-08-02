@@ -56,6 +56,9 @@ model User {
   @@index([role])
 }
 
+/// Приглашение — это ссылка, а не код под диктовку: перешёл и уже внутри.
+/// Поэтому она многоразовая, и ограничена только сроком: одну ссылку кидают
+/// в чат команде, и каждый перешедший получает свой аккаунт с ролью из ссылки.
 model InviteCode {
   id          Int       @id @default(autoincrement())
   code        String    @unique
@@ -63,8 +66,12 @@ model InviteCode {
   teamRole    TeamRole  @default(OTHER)
   note        String?
   createdById Int
+  /// Первый, кто прошёл по ссылке. Полная история — в аудите: на каждый
+  /// переход пишется user.redeem_invite
   usedById    Int?
   usedAt      DateTime?
+  /// Сколько человек зашло по ссылке
+  usedCount   Int       @default(0)
   expiresAt   DateTime
   createdAt   DateTime  @default(now())
 }

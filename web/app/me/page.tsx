@@ -3,6 +3,7 @@ import { getMe, publicFetch, serverFetch } from '@/lib/api';
 import type { CategoryNode, GuideCard } from '@/lib/types';
 import { TEAM_ROLE_LABEL, readingTimeLabel } from '@/lib/types';
 import { EmptyState, GuideCardView, Header } from '@/components/Shell';
+import { AccountSetup } from './AccountSetup';
 
 export const metadata = { title: 'Мой прогресс — PAI Guides', robots: { index: false, follow: false } };
 export const dynamic = 'force-dynamic';
@@ -38,6 +39,9 @@ export default async function MePage() {
         <p className="mt-1 text-sm text-ink-500">
           {TEAM_ROLE_LABEL[me.teamRole]} · {me.login ?? me.email ?? ''}
         </p>
+
+        {/* Пришедшему по ссылке логина и пароля не задавали — предлагаем завести */}
+        {(!me.login || !me.hasPassword) && <AccountSetup me={me} />}
 
         <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Stat label="Прочитано" value={String(readCount)} />

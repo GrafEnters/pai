@@ -13,6 +13,7 @@ import {
   requireAuth,
   revokeSession,
   rotateSession,
+  tryAuth,
   verifyTelegramInitData,
   verifyTelegramLoginWidget,
 } from '../auth.js';
@@ -156,70 +157,54 @@ export async function authRoutes(app: FastifyInstance) {
     },
   );
 
-  // ===== Активация инвайт-кода =====
+  // ===== Переход по пригласительной ссылке =====
+  //
+  // Ничего не спрашиваем: перешёл — и уже внутри. Логин с паролем человек
+  // заводит потом в профиле, когда они ему понадобятся; до тех пор доступ
+  // держится на сессии, а она живёт столько же, сколько refresh-токен.
   app.post(
     '/auth/redeem-invite',
     { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
     async (req, reply) => {
-      const body = z
-        .object({
-          code: z.string().min(4),
-          name: z.string().min(1, 'Укажите имя'),
-          login: z
-            .string()
-            .min(3, 'Логин минимум 3 символа')
-            .regex(/^[a-zA-Z0-9._-]+$/, 'Логин: латиница, цифры, . _ -'),
-          password: z.string().min(8, 'Пароль минимум 8 символов'),
-          email: z.string().regex(EMAIL_RE, 'Некорректный email').optional(),
-        })
-        .safeParse(req.body);
-      if (!body.success) {
-        return reply.code(400).send({ error: body.error.issues[0]?.message ?? 'Некорректные данные' });
-      }
+      const body = z.object({ code: z.string().min(4) }).safeParse(req.body);
+      if (!body.success) return reply.code(400).send({ error: 'Ссылка не содержит кода приглашения' });
+
+      // Ссылка многоразовая, и отличить «первый раз» от «открыл из закладок»
+      // она сама не может. Отличает сессия: у кого она уже есть, тот просто
+      // проходит внутрь, а не заводит себе второй аккаунт
+      const already = await tryAuth(req);
+      if (already) return { user: publicUser(already) };
 
       const invite = await prisma.inviteCode.findUnique({ where: { code: body.data.code.trim() } });
-      if (!invite || invite.usedById || invite.expiresAt < new Date()) {
-        return reply.code(400).send({ error: 'Код недействителен или уже использован' });
+      if (!invite) return reply.code(400).send({ error: 'Ссылка недействительна' });
+      if (invite.expiresAt < new Date()) {
+        return reply.code(400).send({ error: 'Срок действия ссылки истёк — попросите новую' });
       }
 
-      const passwordHash = await bcrypt.hash(body.data.password, env.bcryptCost);
-      try {
-        const user = await prisma.$transaction(async (tx) => {
-          const created = await tx.user.create({
-            data: {
-              name: body.data.name.trim(),
-              login: body.data.login.trim().toLowerCase(),
-              email: body.data.email?.trim().toLowerCase() ?? null,
-              passwordHash,
-              role: invite.role,
-              teamRole: invite.teamRole,
-            },
-          });
-          // updateMany с проверкой usedById — гонка двух активаций одного кода
-          // не создаст двух пользователей с одной ролью
-          const claimed = await tx.inviteCode.updateMany({
-            where: { id: invite.id, usedById: null },
-            data: { usedById: created.id, usedAt: new Date() },
-          });
-          if (claimed.count === 0) throw new Error('INVITE_RACE');
-          return created;
+      const user = await prisma.$transaction(async (tx) => {
+        const created = await tx.user.create({
+          data: { name: 'Новый сотрудник', role: invite.role, teamRole: invite.teamRole },
         });
+        // Номер — чтобы в списке пользователей их можно было различить до того,
+        // как человек представится сам. Имя известно только после вставки:
+        // до неё нет и номера
+        const named = await tx.user.update({
+          where: { id: created.id },
+          data: { name: `Новый сотрудник ${created.id}` },
+        });
+        await tx.inviteCode.update({
+          where: { id: invite.id },
+          data: {
+            usedCount: { increment: 1 },
+            ...(invite.usedById ? {} : { usedById: created.id, usedAt: new Date() }),
+          },
+        });
+        return named;
+      });
 
-        await audit(null, 'user.redeem_invite', 'User', user.id, { code: invite.code });
-        await issueSession(reply, user, 'invite', req.headers['user-agent']);
-        return { user: publicUser(user) };
-      } catch (e: any) {
-        if (e?.message === 'INVITE_RACE') {
-          return reply.code(409).send({ error: 'Код только что использовали' });
-        }
-        if (e?.code === 'P2002') {
-          const target = (e.meta?.target as string[] | undefined) ?? [];
-          if (target.includes('login')) return reply.code(409).send({ error: 'Такой логин уже занят' });
-          if (target.includes('email')) return reply.code(409).send({ error: 'Этот email уже используется' });
-          return reply.code(409).send({ error: 'Такой пользователь уже есть' });
-        }
-        throw e;
-      }
+      await audit(null, 'user.redeem_invite', 'User', user.id, { code: invite.code });
+      await issueSession(reply, user, 'invite', req.headers['user-agent']);
+      return { user: publicUser(user) };
     },
   );
 
@@ -247,6 +232,53 @@ export async function authRoutes(app: FastifyInstance) {
       await prisma.user.update({ where: { id: user.id }, data: { lastSeenAt: new Date() } });
     }
     return publicUser(user);
+  });
+
+  // ===== Своё имя, логин и почта =====
+  //
+  // Пришедшему по ссылке аккаунт достаётся безымянным и без логина: у ссылки
+  // никто ничего не спрашивал. Здесь человек называет себя и заводит логин,
+  // без которого не сможет войти с другого устройства — пароль отдельно,
+  // через change-password.
+  app.patch('/auth/me', { preHandler: requireAuth }, async (req, reply) => {
+    const body = z
+      .object({
+        name: z.string().trim().min(1, 'Укажите имя').max(80, 'Имя длиннее 80 символов').optional(),
+        login: z
+          .string()
+          .trim()
+          .min(3, 'Логин минимум 3 символа')
+          .max(40, 'Логин длиннее 40 символов')
+          .regex(/^[a-zA-Z0-9._-]+$/, 'Логин: латиница, цифры, . _ -')
+          .optional(),
+        email: z.string().trim().regex(EMAIL_RE, 'Некорректный email').optional(),
+      })
+      .safeParse(req.body);
+    if (!body.success) {
+      return reply.code(400).send({ error: body.error.issues[0]?.message ?? 'Некорректные данные' });
+    }
+
+    const user = currentUser(req);
+    const data = {
+      ...(body.data.name ? { name: body.data.name } : {}),
+      ...(body.data.login ? { login: body.data.login.toLowerCase() } : {}),
+      ...(body.data.email ? { email: body.data.email.toLowerCase() } : {}),
+    };
+    if (!Object.keys(data).length) return reply.code(400).send({ error: 'Нечего менять' });
+
+    try {
+      const updated = await prisma.user.update({ where: { id: user.id }, data });
+      await audit(req, 'user.update_profile', 'User', user.id, { fields: Object.keys(data) });
+      return { user: publicUser(updated) };
+    } catch (e: any) {
+      if (e?.code === 'P2002') {
+        const target = (e.meta?.target as string[] | undefined) ?? [];
+        if (target.includes('login')) return reply.code(409).send({ error: 'Такой логин уже занят' });
+        if (target.includes('email')) return reply.code(409).send({ error: 'Этот email уже используется' });
+        return reply.code(409).send({ error: 'Такие данные уже заняты' });
+      }
+      throw e;
+    }
   });
 
   // ===== Смена своего пароля =====

@@ -742,7 +742,7 @@ pai/
 3. **Аутентификация двумя способами:**
    - Telegram: бот на grammY, команда `/start` регистрирует пользователя с ролью `NONE`; вход на сайт через Telegram Login Widget или одноразовую ссылку от бота (magic link, TTL 5 мин). Валидация `initData` по HMAC-SHA256 — код уже есть в `polina-crm/backend/src/auth.ts`, переносится почти дословно.
    - Логин+пароль (bcryptjs) — fallback.
-   - Инвайт-коды: админ генерит код → человек активирует → получает `VIEWER`.
+   - Пригласительные ссылки: админ создаёт ссылку с ролью → человек переходит и сразу получает доступ (DECISIONS §16).
 4. JWT: access 15 мин в httpOnly+Secure+SameSite=Lax cookie, refresh 30 дней с ротацией и хранением хеша в `RefreshToken`.
 5. `requireAuth` / `requireRole(...)` — препendlers как в polina-crm.
 6. Плагины: `@fastify/cors` (whitelist доменов, credentials), `@fastify/cookie`, `@fastify/helmet`, `@fastify/rate-limit` (глобально 300/мин; на `/auth/login` — 10/мин).

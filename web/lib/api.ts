@@ -77,6 +77,8 @@ export interface Me {
   role: 'NONE' | 'VIEWER' | 'EDITOR' | 'ADMIN';
   teamRole: 'BUYER' | 'FARMER' | 'TECH' | 'MEDIABUYER' | 'MANAGER' | 'OTHER';
   email: string | null;
+  /** Задан ли пароль. У пришедших по пригласительной ссылке его нет */
+  hasPassword: boolean;
   telegramUsername: string | null;
   isActive: boolean;
 }

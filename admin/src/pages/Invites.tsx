@@ -13,6 +13,8 @@ interface Invite {
   usedById: number | null;
   usedByName: string | null;
   usedAt: string | null;
+  /** Сколько человек зашло по ссылке — она многоразовая */
+  usedCount: number;
   expiresAt: string;
   createdAt: string;
   createdByName: string | null;
@@ -60,7 +62,11 @@ export function Invites() {
 
   return (
     <div className="p-6">
-      <h1 className="mb-4 text-xl font-semibold text-white">Инвайт-коды</h1>
+      <h1 className="text-xl font-semibold text-white">Пригласительные ссылки</h1>
+      <p className="mb-4 mt-1 text-sm text-ink-500">
+        Ссылку можно отправить хоть одному человеку, хоть всей команде: перешедший сразу попадает внутрь с указанным
+        доступом, ничего не заполняя. Работает, пока не истёк срок.
+      </p>
 
       <div className="card mb-6 p-4">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-5">
@@ -106,7 +112,7 @@ export function Invites() {
             />
           </div>
           <div>
-            <label className="label">Сколько кодов</label>
+            <label className="label">Сколько ссылок</label>
             <input
               className="input"
               type="number"
@@ -128,10 +134,11 @@ export function Invites() {
         <table className="w-full min-w-[900px]">
           <thead>
             <tr>
-              <th className="table-th">Код</th>
+              <th className="table-th">Ссылка</th>
               <th className="table-th">Доступ</th>
               <th className="table-th">В команде</th>
               <th className="table-th">Заметка</th>
+              <th className="table-th">Переходов</th>
               <th className="table-th">Статус</th>
               <th className="table-th"></th>
             </tr>
@@ -139,25 +146,34 @@ export function Invites() {
           <tbody>
             {isLoading && (
               <tr>
-                <td className="table-td text-ink-500" colSpan={6}>
+                <td className="table-td text-ink-500" colSpan={7}>
                   Загрузка…
                 </td>
               </tr>
             )}
             {invites.map((i) => (
-              <tr key={i.id} className={i.usedById || i.isExpired ? 'opacity-50' : ''}>
-                <td className="table-td font-mono">{i.code}</td>
+              <tr key={i.id} className={i.isExpired ? 'opacity-50' : ''}>
+                <td className="table-td">
+                  <button
+                    className="max-w-[320px] truncate font-mono text-xs text-brand-300 hover:text-brand-200"
+                    title={`${i.url} — нажмите, чтобы скопировать`}
+                    onClick={() => void copy(i.url, String(i.id))}
+                  >
+                    {i.url}
+                  </button>
+                </td>
                 <td className="table-td text-ink-400">{i.role}</td>
                 <td className="table-td text-ink-400">{TEAM_ROLE_LABEL[i.teamRole]}</td>
                 <td className="table-td text-ink-400">{i.note ?? '—'}</td>
+                <td className="table-td text-ink-400" title={i.usedByName ? `Первым зашёл ${i.usedByName}` : undefined}>
+                  {i.usedCount || '—'}
+                </td>
                 <td className="table-td">
-                  {i.usedById ? (
-                    <span className="badge bg-green-500/15 text-green-300">Использован · {i.usedByName}</span>
-                  ) : i.isExpired ? (
-                    <span className="badge bg-ink-700 text-ink-400">Просрочен</span>
+                  {i.isExpired ? (
+                    <span className="badge bg-ink-700 text-ink-400">Закрыта</span>
                   ) : (
                     <span className="badge bg-brand-500/15 text-brand-300">
-                      Активен до {new Date(i.expiresAt).toLocaleDateString('ru')}
+                      Работает до {new Date(i.expiresAt).toLocaleDateString('ru')}
                     </span>
                   )}
                 </td>
@@ -167,8 +183,12 @@ export function Invites() {
                       <Copy size={14} />
                       {copied === String(i.id) ? 'Скопировано' : ''}
                     </button>
-                    {!i.usedById && (
-                      <button className="btn-ghost px-2" title="Удалить" onClick={() => remove.mutate(i.id)}>
+                    {!i.isExpired && (
+                      <button
+                        className="btn-ghost px-2"
+                        title={i.usedCount ? 'Закрыть вход по ссылке' : 'Удалить ссылку'}
+                        onClick={() => remove.mutate(i.id)}
+                      >
                         <Trash2 size={14} />
                       </button>
                     )}
@@ -178,8 +198,8 @@ export function Invites() {
             ))}
             {!isLoading && invites.length === 0 && (
               <tr>
-                <td className="table-td text-ink-500" colSpan={6}>
-                  Кодов пока нет
+                <td className="table-td text-ink-500" colSpan={7}>
+                  Ссылок пока нет
                 </td>
               </tr>
             )}
