@@ -168,15 +168,22 @@ export const googleDriveTransport: BackupTransport = {
     const name = segments.pop()!;
     const parentId = await ensureFolders(segments);
 
+    // Файл ищем ДО сборки метаданных: от того, нашёлся он или нет, зависит не
+    // только метод, но и состав тела. Drive отвечает 403 fieldNotWritable, если
+    // parents пришёл в update, а не в create, — и так случалось всякий раз,
+    // когда файл на Диске есть, а записи о нём в нашей БД нет: id брался из
+    // findChild, метод становился PATCH, а parents в теле уже лежал
+    const fileId = meta.existingFileId ?? (await findChild(name, parentId, false));
+    const method = fileId ? 'PATCH' : 'POST';
+
     const metadata = {
       name,
-      ...(meta.existingFileId ? {} : { parents: [parentId] }),
+      // Родителя задаём только при создании. При обновлении он и не меняется:
+      // findChild искал файл именно в этой папке
+      ...(fileId ? {} : { parents: [parentId] }),
       // Свой sha256 кладём рядом с файлом — на нём держится инкрементальность (§9.3)
       appProperties: { sha256: meta.sha256 },
     };
-
-    const fileId = meta.existingFileId ?? (await findChild(name, parentId, false));
-    const method = fileId ? 'PATCH' : 'POST';
     const base = fileId ? `${UPLOAD_API}/files/${fileId}` : `${UPLOAD_API}/files`;
 
     let uploaded: { id: string; md5Checksum?: string };
