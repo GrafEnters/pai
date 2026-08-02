@@ -61,6 +61,28 @@ async function netFetch(url: string, init: RequestInit, timeoutMs: number): Prom
   }
 }
 
+/**
+ * Подменяет хост в адресе, который вернул сам Google.
+ *
+ * Resumable-загрузка идёт в два шага, и адрес сессии для второго Google
+ * присылает на своём каноническом хосте — том самом, до которого маршрута может
+ * не быть. Путь и подпись сессии при этом остаются валидными на любом хосте
+ * API, так что сохраняем всё, кроме имени.
+ *
+ * Меняем только адреса самого Google: чужой хост в Location — повод
+ * остановиться, а не молча переписать и отправить туда файл.
+ */
+function withApiHost(rawUrl: string): string {
+  try {
+    const url = new URL(rawUrl);
+    if (url.hostname !== 'googleapis.com' && !url.hostname.endsWith('.googleapis.com')) return rawUrl;
+    url.host = env.google.apiHost;
+    return url.toString();
+  } catch {
+    return rawUrl;
+  }
+}
+
 async function backoff(attempt: number): Promise<void> {
   const delay = Math.min(60_000, 2 ** attempt * 1000 + Math.floor(Math.random() * 500));
   await new Promise((r) => setTimeout(r, delay));
@@ -199,7 +221,7 @@ export const googleDriveTransport: BackupTransport = {
       if (!location) throw new Error('Drive не вернул URL для resumable-загрузки');
 
       const put = await netFetch(
-        location,
+        withApiHost(location),
         {
           method: 'PUT',
           headers: { 'content-type': mime, 'content-length': String(content.length) },
