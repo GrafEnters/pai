@@ -538,6 +538,42 @@ async function warnIfLowQuota(transport: BackupTransport, say: (m: string) => vo
   }
 }
 
+/**
+ * Прогон живёт внутри процесса: и запущенный из очереди, и запущенный скриптом.
+ * Процесс убили — статус RUNNING в БД остаётся навсегда, потому что блок catch,
+ * который пишет FAILED, выполниться уже не может. Так и случилось, когда
+ * платформа погасила контейнер посреди прогона.
+ *
+ * Поэтому при старте новый процесс закрывает то, что осталось от предыдущего:
+ * живых прогонов в этот момент быть не может — их некому вести.
+ */
+const STALE_GRACE_MS = 60_000;
+
+export async function failStaleRuns(log: (m: string) => void = console.log): Promise<number> {
+  // Оговорка про запас: `npm run backup` — отдельный процесс, и он мог начать
+  // прогон ровно сейчас, пока сервер поднимается. Минуты форы хватает, чтобы
+  // не оборвать такой прогон в самом начале
+  const cutoff = new Date(Date.now() - STALE_GRACE_MS);
+  const stale = await prisma.backupRun.findMany({
+    where: { status: 'RUNNING', startedAt: { lt: cutoff } },
+    select: { id: true, kind: true, transport: true, startedAt: true },
+  });
+  if (!stale.length) return 0;
+
+  await prisma.backupRun.updateMany({
+    where: { id: { in: stale.map((r) => r.id) } },
+    data: {
+      status: 'FAILED',
+      finishedAt: new Date(),
+      error: 'Прогон оборван: процесс остановлен до его завершения (перезапуск или остановка контейнера).',
+    },
+  });
+
+  const list = stale.map((r) => `#${r.id} (${r.kind}, ${r.transport})`).join(', ');
+  log(`[backup] закрыто прогонов, оставшихся от прошлого запуска: ${stale.length} — ${list}`);
+  return stale.length;
+}
+
 /** Сколько часов прошло с последнего успешного бэкапа — для /health и баннера в админке. */
 export async function hoursSinceLastSuccess(transportName?: string): Promise<number | null> {
   const last = await prisma.backupRun.findFirst({

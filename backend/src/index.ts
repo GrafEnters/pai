@@ -14,6 +14,7 @@ import { startBot } from './bot.js';
 import { registerJob, setJobLogger, startJobs, stopJobs } from './jobs/index.js';
 import { registerMediaJobs } from './jobs/media.js';
 import { registerBackupJobs, scheduleBackupJobs } from './jobs/backup.js';
+import { failStaleRuns } from './services/backup/index.js';
 import { registerAnalyticsJobs, scheduleAnalyticsJobs } from './jobs/analytics.js';
 import { authRoutes } from './routes/auth.js';
 import { uploadRoutes } from './routes/upload.js';
@@ -154,6 +155,10 @@ await app.register(adminSystemRoutes, { prefix: '/api' });
 // ===== Старт =====
 try {
   await applySqlPatches((m) => app.log.info(m));
+
+  // Хвосты прошлого запуска: прогон бэкапа живёт внутри процесса, и убитый
+  // вместе с ним остаётся в RUNNING навсегда
+  await failStaleRuns((m) => app.log.info(m));
 
   setJobLogger({
     info: (m) => app.log.info(m),
