@@ -154,13 +154,15 @@ export function Invites() {
             {invites.map((i) => (
               <tr key={i.id} className={i.isExpired ? 'opacity-50' : ''}>
                 <td className="table-td">
-                  <button
-                    className="max-w-[320px] truncate font-mono text-xs text-brand-300 hover:text-brand-200"
-                    title={`${i.url} — нажмите, чтобы скопировать`}
-                    onClick={() => void copy(i.url, String(i.id))}
+                  <a
+                    href={i.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block max-w-[320px] truncate font-mono text-xs text-brand-300 underline decoration-brand-300/40 hover:text-brand-200"
+                    title={i.url}
                   >
                     {i.url}
-                  </button>
+                  </a>
                 </td>
                 <td className="table-td text-ink-400">{i.role}</td>
                 <td className="table-td text-ink-400">{TEAM_ROLE_LABEL[i.teamRole]}</td>

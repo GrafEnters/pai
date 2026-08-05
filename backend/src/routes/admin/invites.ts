@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../../db.js';
 import { env } from '../../env.js';
@@ -9,7 +9,24 @@ import { audit } from '../../audit.js';
 const ROLES = ['VIEWER', 'EDITOR', 'ADMIN'] as const;
 const TEAM_ROLES = ['BUYER', 'FARMER', 'TECH', 'MEDIABUYER', 'MANAGER', 'OTHER'] as const;
 
-/** Код без похожих друг на друга символов — его диктуют голосом и пересылают в чат. */
+/**
+ * Адрес приглашения.
+ *
+ * PUBLIC_WEB_URL берём, только если это похоже на адрес. Переменная живёт
+ * в панели хостинга, и стоит ей оказаться пустой или случайной — ссылка
+ * склеивалась во что-то вроде «1/invite?code=…», то есть в никуда, и это
+ * было видно только глазами в админке.
+ *
+ * Запасной путь надёжнее самой переменной: админка и сайт стоят на одном
+ * домене за одним nginx, так что адрес запроса и есть адрес сайта.
+ */
+function inviteUrl(req: FastifyRequest, code: string): string {
+  const configured = env.publicWebUrl;
+  const base = /^https?:\/\//i.test(configured) ? configured : `${req.protocol}://${req.headers.host ?? ''}`;
+  return `${base}/invite?code=${encodeURIComponent(code)}`;
+}
+
+/** Код без похожих друг на друга символов — он живёт внутри ссылки. */
 function generateCode(): string {
   const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
   const bytes = crypto.randomBytes(12);
@@ -24,7 +41,7 @@ function generateCode(): string {
 export async function adminInviteRoutes(app: FastifyInstance) {
   const onlyAdmin = { preHandler: requireRole('ADMIN') };
 
-  app.get('/admin/invites', onlyAdmin, async () => {
+  app.get('/admin/invites', onlyAdmin, async (req) => {
     const invites = await prisma.inviteCode.findMany({ orderBy: { createdAt: 'desc' }, take: 200 });
     const userIds = [
       ...new Set(invites.flatMap((i) => [i.createdById, i.usedById].filter(Boolean) as number[])),
@@ -40,7 +57,7 @@ export async function adminInviteRoutes(app: FastifyInstance) {
       createdByName: byId.get(i.createdById) ?? null,
       usedByName: i.usedById ? (byId.get(i.usedById) ?? null) : null,
       isExpired: i.expiresAt < new Date(),
-      url: `${env.publicWebUrl}/invite?code=${i.code}`,
+      url: inviteUrl(req, i.code),
     }));
   });
 
@@ -77,7 +94,7 @@ export async function adminInviteRoutes(app: FastifyInstance) {
       role: body.data.role,
       count: created.length,
     });
-    return created.map((c) => ({ ...c, url: `${env.publicWebUrl}/invite?code=${c.code}` }));
+    return created.map((c) => ({ ...c, url: inviteUrl(req, c.code) }));
   });
 
   // Ссылка многоразовая, поэтому «удалить» значит прежде всего «закрыть вход»:

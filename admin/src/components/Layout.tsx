@@ -29,7 +29,7 @@ const NAV: NavItem[] = [
   { to: '/structure', label: 'Структура', icon: FolderTree, role: 'EDITOR', ready: true },
   { to: '/stats', label: 'Статистика', icon: BarChart3, role: 'ADMIN', ready: true },
   { to: '/users', label: 'Пользователи', icon: UsersIcon, role: 'ADMIN', ready: true },
-  { to: '/invites', label: 'Инвайты', icon: Ticket, role: 'ADMIN', ready: true },
+  { to: '/invites', label: 'Приглашения', icon: Ticket, role: 'ADMIN', ready: true },
   { to: '/backups', label: 'Бэкапы', icon: DatabaseBackup, role: 'ADMIN', ready: true },
   { to: '/audit', label: 'Аудит', icon: ScrollText, role: 'ADMIN', ready: true },
 ];
