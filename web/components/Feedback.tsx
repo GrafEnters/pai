@@ -3,19 +3,29 @@
 import { useEffect, useState } from 'react';
 import { API_PUBLIC } from '@/lib/config';
 import { track } from '@/lib/analytics';
+import { useMe } from '@/lib/useMe';
 
-/** «Полезно?» под гайдом (PLAN §5.1). Ответ сохраняется и виден при возврате. */
+/**
+ * «Полезно?» под гайдом (PLAN §5.1). Ответ сохраняется и виден при возврате.
+ *
+ * Гостю (открыт публичный доступ) блок не показываем: ответ привязывается
+ * к пользователю, и сохранить его было бы некуда — кнопки нажимались бы вхолостую.
+ */
 export function Feedback({ guideId }: { guideId: number }) {
+  const { me, checked } = useMe();
   const [helpful, setHelpful] = useState<boolean | null>(null);
   const [comment, setComment] = useState('');
   const [sent, setSent] = useState(false);
 
   useEffect(() => {
+    if (!me) return;
     fetch(`${API_PUBLIC}/api/guides/${guideId}/feedback/mine`, { credentials: 'include' })
       .then((r) => (r.ok ? r.json() : null))
       .then((d: { helpful: boolean | null } | null) => d && setHelpful(d.helpful))
       .catch(() => {});
-  }, [guideId]);
+  }, [guideId, me]);
+
+  if (!checked || !me) return null;
 
   async function send(value: boolean, withComment = false) {
     setHelpful(value);

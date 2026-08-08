@@ -8,6 +8,7 @@ import {
   Ticket,
   DatabaseBackup,
   ScrollText,
+  SlidersHorizontal,
   LogOut,
 } from 'lucide-react';
 import { useAuth } from '../auth';
@@ -32,6 +33,7 @@ const NAV: NavItem[] = [
   { to: '/invites', label: 'Приглашения', icon: Ticket, role: 'ADMIN', ready: true },
   { to: '/backups', label: 'Бэкапы', icon: DatabaseBackup, role: 'ADMIN', ready: true },
   { to: '/audit', label: 'Аудит', icon: ScrollText, role: 'ADMIN', ready: true },
+  { to: '/settings', label: 'Настройки', icon: SlidersHorizontal, role: 'ADMIN', ready: true },
 ];
 
 const ROLE_LABEL: Record<Role, string> = {

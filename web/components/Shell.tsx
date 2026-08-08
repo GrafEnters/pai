@@ -2,13 +2,12 @@ import Link from 'next/link';
 import type { CategoryNode, GuideCard } from '@/lib/types';
 import { LEVEL_LABEL, readingTimeLabel } from '@/lib/types';
 import { SearchBox } from './SearchBox';
-import { LogoutButton } from './LogoutButton';
 import { CurrentUser } from './CurrentUser';
 
 /**
  * Шапка — серверный компонент без обращения к cookie: иначе страницы гайда
- * и категории перестали бы быть статическими. Имя пользователя подгружает
- * <CurrentUser /> уже в браузере.
+ * и категории перестали бы быть статическими. Имя пользователя и кнопки входа
+ * или выхода подгружает <CurrentUser /> уже в браузере.
  */
 export function Header({ categories }: { categories: CategoryNode[] }) {
   return (
@@ -34,7 +33,6 @@ export function Header({ categories }: { categories: CategoryNode[] }) {
         <div className="ml-auto flex items-center gap-2">
           <SearchBox />
           <CurrentUser />
-          <LogoutButton />
         </div>
       </div>
     </header>

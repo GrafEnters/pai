@@ -6,6 +6,7 @@ import { requireAuth, roleAtLeast, tryAuth } from '../auth.js';
 import { asDoc, collectHeadings } from '../content/schema.js';
 import { buildRenderContext } from '../services/guides.js';
 import { serializeMedia } from '../services/mediaView.js';
+import { isPublicAccessOpen } from '../settings.js';
 
 /**
  * Публичный контент читают двое: авторизованный человек и сам сервис `web`,
@@ -14,10 +15,16 @@ import { serializeMedia } from '../services/mediaView.js';
  *
  * Это безопасно ровно потому, что `web` сам никого не пускает: его middleware
  * проверяет подпись JWT до отдачи страницы (PLAN §5.3 и §6.4).
+ *
+ * Третий случай — включённый в админке публичный доступ: тогда гайды читает кто
+ * угодно без входа. Личное (прогресс, фидбек, «обязательное для роли») сюда не
+ * попадает — те роуты как были под `requireAuth`, так и остаются.
  */
 async function requireReaderOrInternal(req: FastifyRequest, reply: FastifyReply) {
   const internal = req.headers['x-internal-token'];
   if (typeof internal === 'string' && internal && internal === env.revalidateSecret) return;
+
+  if (await isPublicAccessOpen()) return;
 
   const user = await tryAuth(req);
   if (!user) return reply.code(401).send({ error: 'Не авторизован' });
@@ -55,6 +62,13 @@ function toCard<T extends CardRow>(g: T) {
 
 export async function publicRoutes(app: FastifyInstance) {
   const reader = { preHandler: requireReaderOrInternal };
+
+  // ===== Режим доступа =====
+  //
+  // Отвечает без авторизации намеренно: это единственный способ для middleware
+  // сайта узнать, пускать ли гостя, — у гостя ни куки, ни внутреннего токена
+  // нет. Наружу уходит один булев флаг, ничего чувствительного.
+  app.get('/access', async () => ({ open: await isPublicAccessOpen() }));
 
   // ===== Дерево категорий со счётчиками =====
   app.get('/categories', reader, async () => {

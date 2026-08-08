@@ -1,5 +1,15 @@
 import { prisma } from './db.js';
 
+export const SETTING_KEYS = {
+  googleRefreshToken: 'google.refresh_token',
+  googleRootFolderId: 'google.root_folder_id',
+  readScrollPct: 'analytics.read_scroll_pct',
+  readTimeRatio: 'analytics.read_time_ratio',
+  backupLastSuccessAt: 'backup.last_success_at',
+  /** Пускать ли читать гайды без входа. По умолчанию — нет, сайт закрытый. */
+  publicAccess: 'access.public',
+} as const;
+
 /**
  * key/value настройки в БД. Источник истины для того, что может меняться
  * в рантайме без передеплоя — например, google.refresh_token (§9.0: `.env`
@@ -16,6 +26,7 @@ export async function setSetting(key: string, value: unknown): Promise<void> {
     create: { key, value: value as never },
     update: { value: value as never },
   });
+  if (key === SETTING_KEYS.publicAccess) publicAccessCache = null;
 }
 
 export async function getAllSettings(): Promise<Record<string, unknown>> {
@@ -29,10 +40,22 @@ export async function settingOr<T>(key: string, fallback: T): Promise<T> {
   return v === undefined || v === null ? fallback : v;
 }
 
-export const SETTING_KEYS = {
-  googleRefreshToken: 'google.refresh_token',
-  googleRootFolderId: 'google.root_folder_id',
-  readScrollPct: 'analytics.read_scroll_pct',
-  readTimeRatio: 'analytics.read_time_ratio',
-  backupLastSuccessAt: 'backup.last_success_at',
-} as const;
+/**
+ * Открыт ли публичный доступ.
+ *
+ * Значение спрашивают на каждый запрос — и гейт контента здесь, и middleware
+ * сайта через `/api/access`. Ради одного булева ходить в базу столько раз
+ * незачем, поэтому держим его в памяти процесса. Правка из админки идёт через
+ * `setSetting` и сбрасывает кэш сразу, TTL — просто страховка.
+ */
+let publicAccessCache: { value: boolean; at: number } | null = null;
+const PUBLIC_ACCESS_TTL_MS = 30_000;
+
+export async function isPublicAccessOpen(): Promise<boolean> {
+  if (publicAccessCache && Date.now() - publicAccessCache.at < PUBLIC_ACCESS_TTL_MS) {
+    return publicAccessCache.value;
+  }
+  const value = (await getSetting<boolean>(SETTING_KEYS.publicAccess)) === true;
+  publicAccessCache = { value, at: Date.now() };
+  return value;
+}

@@ -9,6 +9,40 @@ const PUBLIC_PATHS = ['/login', '/invite'];
 
 const secret = new TextEncoder().encode(process.env.JWT_SECRET ?? 'dev-insecure-secret-change-me-please-32-chars-min');
 
+// lib/api.ts сюда не годится: он тянет next/headers, а middleware живёт в Edge Runtime
+const API_INTERNAL = (
+  process.env.API_INTERNAL_URL ??
+  process.env.NEXT_PUBLIC_API_URL ??
+  'http://localhost:3001'
+).replace(/\/+$/, '');
+
+/**
+ * Открыт ли публичный доступ (тумблер в админке, §7).
+ *
+ * Спрашиваем backend, а не переменную окружения: тумблер должен срабатывать без
+ * пересборки образа. Ответ держим в памяти процесса 10 секунд — иначе каждый
+ * запрос страницы тянул бы за собой ещё один сетевой round-trip. Столько же
+ * длится и задержка выключения: закрыли доступ — гости отваливаются в течение
+ * десяти секунд.
+ *
+ * Backend не ответил — считаем, что закрыто: калитка по умолчанию заперта.
+ */
+let accessCache: { open: boolean; at: number } | null = null;
+const ACCESS_TTL_MS = 10_000;
+
+async function isPublicAccessOpen(): Promise<boolean> {
+  if (accessCache && Date.now() - accessCache.at < ACCESS_TTL_MS) return accessCache.open;
+  try {
+    const res = await fetch(`${API_INTERNAL}/api/access`, { cache: 'no-store' });
+    if (!res.ok) return false;
+    const data = (await res.json()) as { open?: boolean };
+    accessCache = { open: data.open === true, at: Date.now() };
+    return accessCache.open;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Гейт доступа до отдачи страницы (Edge Runtime).
  *
@@ -43,6 +77,11 @@ export async function middleware(req: NextRequest) {
   }
 
   if (req.cookies.get(REFRESH_COOKIE)?.value) {
+    return NextResponse.next();
+  }
+
+  // Гостя пускаем, только если доступ открыт тумблером в админке
+  if (await isPublicAccessOpen()) {
     return NextResponse.next();
   }
 
